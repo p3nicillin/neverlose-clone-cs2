@@ -17,6 +17,8 @@
 #include "cheat_revealer.h"
 #include "config.h"
 
+CheatCore* g_Cheat = nullptr;
+
 CheatCore::CheatCore() 
     : m_running(false)
     , m_initialized(false)
@@ -99,24 +101,18 @@ void CheatCore::Update() {
 
     m_frameCount++;
 
-    // Get current command
-    CUserCmd* cmd = Memory::GetCurrentCommand();
-    if (!cmd) {
-        return;
-    }
-
     // Fire Lua setup_command event
-    m_lua->FireEvent("setup_command", cmd);
+    m_lua->FireEvent("setup_command");
 
     // Run ragebot
-    m_ragebot->Run(cmd);
+    m_ragebot->Run(nullptr);
 
     // Run anti-aim
     bool sendPacket = true;
-    m_antiaim->Apply(cmd, sendPacket);
+    m_antiaim->Apply(nullptr, sendPacket);
 
     // Run legitbot
-    m_legitbot->Run(cmd);
+    m_legitbot->Run(nullptr);
 
     // Update misc features
     m_misc->Update();
@@ -125,7 +121,7 @@ void CheatCore::Update() {
     m_revealer->Detect();
 
     // Fire Lua createmove event
-    m_lua->FireEvent("createmove", cmd);
+    m_lua->FireEvent("createmove");
 
     // Update UI
     m_ui->Update();

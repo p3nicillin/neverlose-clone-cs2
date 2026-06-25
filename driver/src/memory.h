@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <ntddk.h>
-#include <wdm.h>
+#include "kernel_defs.h"
 
 // -----------------------------------------------------------------
 // Function declarations

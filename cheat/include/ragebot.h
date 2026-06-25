@@ -4,22 +4,8 @@
 
 #pragma once
 
-#include <windows.h>
-#include <cstdint>
-#include <vector>
-
-struct Vector3 {
-    float x, y, z;
-    Vector3() : x(0), y(0), z(0) {}
-    Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
-    Vector3 operator+(const Vector3& other) const { return Vector3(x + other.x, y + other.y, z + other.z); }
-    Vector3 operator-(const Vector3& other) const { return Vector3(x - other.x, y - other.y, z - other.z); }
-    Vector3 operator*(float scalar) const { return Vector3(x * scalar, y * scalar, z * scalar); }
-    float Length() const { return sqrt(x*x + y*y + z*z); }
-};
-
-class C_BasePlayer;
-class CUserCmd;
+#include "utils.h"
+#include "game_classes.h"
 
 class Ragebot {
 public:
@@ -75,15 +61,3 @@ private:
     DWORD m_lastTime;
 };
 
-enum Hitbox {
-    HITBOX_HEAD = 0,
-    HITBOX_NECK,
-    HITBOX_CHEST,
-    HITBOX_STOMACH,
-    HITBOX_PELVIS,
-    HITBOX_LEFT_ARM,
-    HITBOX_RIGHT_ARM,
-    HITBOX_LEFT_LEG,
-    HITBOX_RIGHT_LEG,
-    HITBOX_MAX
-};

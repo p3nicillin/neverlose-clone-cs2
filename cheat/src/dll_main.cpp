@@ -8,8 +8,7 @@
 #include "logger.h"
 #include "anti_debug.h"
 
-// Global cheat instance
-static CheatCore* g_Cheat = nullptr;
+// g_Cheat is defined in cheat_core.cpp; extern declared in cheat_core.h
 static HANDLE g_MainThread = nullptr;
 
 // -----------------------------------------------------------------

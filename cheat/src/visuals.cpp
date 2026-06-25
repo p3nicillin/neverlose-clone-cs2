@@ -183,7 +183,7 @@ void Visuals::RenderESP() {
             ImGui::GetBackgroundDrawList()->AddRect(
                 ImVec2(screenHead.x - width / 2, screenHead.y),
                 ImVec2(screenHead.x + width / 2, screenFeet.y),
-                color, 0, 0, 1.5f
+                color, 0.0f, 1.5f, 0
             );
         }
 
@@ -328,7 +328,7 @@ void Visuals::RenderHitMarkers() {
             continue;
         }
 
-        ImColor color = marker.headshot ? ImColor(255, 0, 0, 255 * alpha) : ImColor(255, 255, 255, 255 * alpha);
+        ImColor color = marker.headshot ? ImColor(255, 0, 0, (int)(255 * alpha)) : ImColor(255, 255, 255, (int)(255 * alpha));
         float size = 10.0f;
         float cx = ImGui::GetIO().DisplaySize.x / 2;
         float cy = ImGui::GetIO().DisplaySize.y / 2;

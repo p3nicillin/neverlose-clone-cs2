@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <ntddk.h>
-#include <wdm.h>
+#include "kernel_defs.h"
 
 NTSTATUS InstallHooks();
 void RemoveHooks();
@@ -37,7 +36,7 @@ NTSTATUS HookedNtWriteVirtualMemory(
 
 NTSTATUS HookedNtQueryInformationProcess(
     HANDLE ProcessHandle,
-    PROCESS_INFORMATION_CLASS ProcessInformationClass,
+    PROCESSINFOCLASS ProcessInformationClass,
     PVOID ProcessInformation,
     ULONG ProcessInformationLength,
     PULONG ReturnLength

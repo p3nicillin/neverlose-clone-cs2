@@ -4,7 +4,6 @@
 
 #include "utils.h"
 #include "vac_bypass.h"
-#include <ntddk.h>
 #include <intrin.h>
 
 extern PVAC_BYPASS_CONTEXT g_Context;
@@ -13,12 +12,8 @@ extern PVAC_BYPASS_CONTEXT g_Context;
 // Get SSDT base address
 // -----------------------------------------------------------------
 ULONG_PTR GetSSDTBase() {
-    PKPRCB kprcb = (PKPRCB)KeGetCurrentProcessorNumberEx(NULL);
-    if (!kprcb) return 0;
-
-    // SSDT is at offset 0x38 in KPRCB for x64
-    ULONG_PTR ssdtBase = *(ULONG_PTR*)((ULONG_PTR)kprcb + 0x38);
-    return ssdtBase;
+    // SSDT access requires PE parsing of ntoskrnl.exe — stubbed
+    return 0;
 }
 
 // -----------------------------------------------------------------
@@ -99,8 +94,7 @@ NTSTATUS GetProcessNameFromHandle(HANDLE ProcessHandle, WCHAR* name, ULONG size)
     PUNICODE_STRING pName;
     status = SeLocateProcessImageName(pProcess, &pName);
     if (NT_SUCCESS(status)) {
-        wcsncpy(name, pName->Buffer, size - 1);
-        name[size - 1] = L'\0';
+        wcsncpy_s(name, size, pName->Buffer, size - 1);
         ExFreePool(pName);
     }
 

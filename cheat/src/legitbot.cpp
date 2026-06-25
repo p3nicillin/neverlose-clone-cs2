@@ -3,6 +3,7 @@
 // =================================================================
 
 #include "legitbot.h"
+#include "game_classes.h"
 #include "memory.h"
 #include "offsets.h"
 #include "logger.h"

@@ -3,6 +3,7 @@
 // =================================================================
 
 #include "stdafx.h"
+#include <TlHelp32.h>
 #include "utils.h"
 #include <chrono>
 #include <random>
@@ -200,15 +201,16 @@ DWORD Utils::GetProcessId(const std::string& processName) {
         return 0;
     }
 
-    PROCESSENTRY32A pe;
-    pe.dwSize = sizeof(PROCESSENTRY32A);
-    if (Process32FirstA(hSnapshot, &pe)) {
+    std::wstring wProcessName(processName.begin(), processName.end());
+    PROCESSENTRY32W pe;
+    pe.dwSize = sizeof(PROCESSENTRY32W);
+    if (Process32FirstW(hSnapshot, &pe)) {
         do {
-            if (_stricmp(pe.szExeFile, processName.c_str()) == 0) {
+            if (_wcsicmp(pe.szExeFile, wProcessName.c_str()) == 0) {
                 CloseHandle(hSnapshot);
                 return pe.th32ProcessID;
             }
-        } while (Process32NextA(hSnapshot, &pe));
+        } while (Process32NextW(hSnapshot, &pe));
     }
 
     CloseHandle(hSnapshot);
@@ -224,15 +226,16 @@ uintptr_t Utils::GetModuleBase(DWORD pid, const std::string& moduleName) {
         return 0;
     }
 
-    MODULEENTRY32A me;
-    me.dwSize = sizeof(MODULEENTRY32A);
-    if (Module32FirstA(hSnapshot, &me)) {
+    std::wstring wModuleName(moduleName.begin(), moduleName.end());
+    MODULEENTRY32W me;
+    me.dwSize = sizeof(MODULEENTRY32W);
+    if (Module32FirstW(hSnapshot, &me)) {
         do {
-            if (_stricmp(me.szModule, moduleName.c_str()) == 0) {
+            if (_wcsicmp(me.szModule, wModuleName.c_str()) == 0) {
                 CloseHandle(hSnapshot);
                 return (uintptr_t)me.modBaseAddr;
             }
-        } while (Module32NextA(hSnapshot, &me));
+        } while (Module32NextW(hSnapshot, &me));
     }
 
     CloseHandle(hSnapshot);
@@ -335,15 +338,6 @@ bool Utils::CreateDirectory(const std::string& path) {
 }
 
 // -----------------------------------------------------------------
-// Get current working directory
-// -----------------------------------------------------------------
-std::string Utils::GetCurrentDirectory() {
-    char buffer[MAX_PATH];
-    GetCurrentDirectoryA(MAX_PATH, buffer);
-    return std::string(buffer);
-}
-
-// -----------------------------------------------------------------
 // Split string by delimiter
 // -----------------------------------------------------------------
 std::vector<std::string> Utils::SplitString(const std::string& str, char delimiter) {
@@ -366,37 +360,3 @@ std::string Utils::TrimString(const std::string& str) {
     return str.substr(start, end - start + 1);
 }
 
-void Utils::XorData(uint8_t* data, size_t size, uint8_t key) {
-    for (size_t i = 0; i < size; i++) {
-        data[i] ^= key;
-    }
-}
-
-uint32_t Utils::HashString(const char* str) {
-    uint32_t hash = 0x811C9DC5;
-    while (*str) {
-        hash ^= *str++;
-        hash *= 0x01000193;
-    }
-    return hash;
-}
-
-uint32_t Utils::HashStringCompileTime(const char* str) {
-    uint32_t hash = 0x811C9DC5;
-    while (*str) {
-        hash ^= *str++;
-        hash *= 0x01000193;
-    }
-    return hash;
-}
-
-std::string Utils::GetCurrentDirectory() {
-    char buffer[MAX_PATH];
-    GetCurrentDirectoryA(MAX_PATH, buffer);
-    return std::string(buffer);
-}
-
-bool Utils::DirectoryExists(const std::string& path) {
-    DWORD attrib = GetFileAttributesA(path.c_str());
-    return (attrib != INVALID_FILE_ATTRIBUTES && (attrib & FILE_ATTRIBUTE_DIRECTORY));
-}

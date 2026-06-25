@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include "dse_bypass.h"
 
 class Loader {
 public:
@@ -24,8 +25,9 @@ public:
 private:
     DWORD FindProcess(const std::wstring& name);
 
-    SC_HANDLE m_hServiceManager;
-    SC_HANDLE m_hService;
-    HANDLE m_hProcess;
-    char m_workingDir[MAX_PATH];
+    SC_HANDLE  m_hServiceManager;
+    SC_HANDLE  m_hService;
+    HANDLE     m_hProcess;
+    char       m_workingDir[MAX_PATH];
+    DSEBypass  m_dse;
 };

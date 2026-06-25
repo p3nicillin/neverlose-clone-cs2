@@ -142,7 +142,6 @@ void AntiDebug::CheckDumpTools() {
 }
 
 void AntiDebug::Crash() {
-    Logger::Log("Anti-debug: Crashing process");
-    __debugbreak();
-    ExitProcess(1);
+    Logger::Log("Anti-debug: Detected, unloading");
+    ExitThread(0);
 }

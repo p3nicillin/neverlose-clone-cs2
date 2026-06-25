@@ -5,7 +5,64 @@
 #include "vac_bypass.h"
 #include "utils.h"
 #include "memory.h"
-#include <ntddk.h>
+
+// -----------------------------------------------------------------
+// Global definitions declared extern in vac_bypass.h
+// -----------------------------------------------------------------
+LIST_ENTRY g_HiddenRegions;
+KSPIN_LOCK g_HiddenRegionsLock;
+
+NTSTATUS HideRegions_Initialize() {
+    InitializeListHead(&g_HiddenRegions);
+    KeInitializeSpinLock(&g_HiddenRegionsLock);
+    return STATUS_SUCCESS;
+}
+
+void HideRegions_Cleanup() {
+    KIRQL irql;
+    KeAcquireSpinLock(&g_HiddenRegionsLock, &irql);
+    while (!IsListEmpty(&g_HiddenRegions)) {
+        PLIST_ENTRY entry = RemoveHeadList(&g_HiddenRegions);
+        PHIDDEN_REGION region = CONTAINING_RECORD(entry, HIDDEN_REGION, ListEntry);
+        ExFreePoolWithTag(region, 'rgiH');
+    }
+    KeReleaseSpinLock(&g_HiddenRegionsLock, irql);
+}
+
+NTSTATUS AddHiddenRegion(PVOID BaseAddress, SIZE_T RegionSize) {
+    PHIDDEN_REGION region = (PHIDDEN_REGION)ExAllocatePoolWithTag(NonPagedPool, sizeof(HIDDEN_REGION), 'rgiH');
+    if (!region) return STATUS_INSUFFICIENT_RESOURCES;
+    region->BaseAddress = BaseAddress;
+    region->RegionSize = RegionSize;
+    KIRQL irql;
+    KeAcquireSpinLock(&g_HiddenRegionsLock, &irql);
+    InsertTailList(&g_HiddenRegions, &region->ListEntry);
+    KeReleaseSpinLock(&g_HiddenRegionsLock, irql);
+    return STATUS_SUCCESS;
+}
+
+BOOLEAN IsRegionHidden(PVOID BaseAddress) {
+    KIRQL irql;
+    BOOLEAN hidden = FALSE;
+    KeAcquireSpinLock(&g_HiddenRegionsLock, &irql);
+    PLIST_ENTRY entry = g_HiddenRegions.Flink;
+    while (entry != &g_HiddenRegions) {
+        PHIDDEN_REGION region = CONTAINING_RECORD(entry, HIDDEN_REGION, ListEntry);
+        if ((ULONG_PTR)BaseAddress >= (ULONG_PTR)region->BaseAddress &&
+            (ULONG_PTR)BaseAddress < (ULONG_PTR)region->BaseAddress + region->RegionSize) {
+            hidden = TRUE;
+            break;
+        }
+        entry = entry->Flink;
+    }
+    KeReleaseSpinLock(&g_HiddenRegionsLock, irql);
+    return hidden;
+}
+
+BOOLEAN IsVACProcess(HANDLE ProcessHandle) {
+    UNREFERENCED_PARAMETER(ProcessHandle);
+    return FALSE;
+}
 
 // -----------------------------------------------------------------
 // Patch VAC modules
@@ -31,7 +88,7 @@ NTSTATUS PatchVACModules() {
         if (patternAddr) {
             // Patch with NOPs or RET
             UCHAR patch[10] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0xC3, 0x00, 0x00, 0x00, 0x00 };
-            WriteProcessMemory(pid, patternAddr, patch, 6);
+            WriteProcessMemory(pid, (PVOID)patternAddr, patch, 6);
             DbgPrint("[Neverlose] Patched VAC module %ws at 0x%p\n", patterns[i].processName, patternAddr);
         }
     }
@@ -44,7 +101,7 @@ NTSTATUS PatchVACModules() {
             // Patch VAC init function (specific offset for CS2)
             ULONG_PTR vacInit = cs2Base + 0x10000;
             UCHAR patch[] = { 0x31, 0xC0, 0xC3 }; // XOR EAX, EAX; RET
-            WriteProcessMemory(cs2Pid, vacInit, patch, sizeof(patch));
+            WriteProcessMemory(cs2Pid, (PVOID)vacInit, patch, sizeof(patch));
             DbgPrint("[Neverlose] Patched CS2 VAC initialization\n");
         }
     }
@@ -100,7 +157,7 @@ NTSTATUS DisableVACService() {
         clientId.UniqueProcess = (HANDLE)vacPid;
         clientId.UniqueThread = NULL;
 
-        status = ZwOpenProcess(&hProcess, PROCESS_TERMINATE, &procAttr, &clientId);
+        status = ZwOpenProcess(&hProcess, (ACCESS_MASK)PROCESS_TERMINATE, &procAttr, &clientId);
         if (NT_SUCCESS(status)) {
             ZwTerminateProcess(hProcess, 0);
             ZwClose(hProcess);

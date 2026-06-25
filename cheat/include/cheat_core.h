@@ -19,6 +19,10 @@ class LuaAPI;
 class CheatRevealer;
 class Config;
 
+// Global cheat instance
+class CheatCore;
+extern CheatCore* g_Cheat;
+
 // Main cheat core class
 class CheatCore {
 public:

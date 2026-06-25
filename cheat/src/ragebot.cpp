@@ -4,7 +4,8 @@
 
 #include "stdafx.h"
 #include "ragebot.h"
-#include "game_classes.h"  // ← ADD THIS
+#include "utils.h"
+#include "game_classes.h"
 #include "memory.h"
 #include "offsets.h"
 #include "logger.h"
@@ -63,12 +64,12 @@ void Ragebot::Run(CUserCmd* cmd) {
     }
 
     // Hitchance check
-    if (!CheckHitchance(target.player, target.aimPoint, m_hitchance)) {
+    if (CalculateHitchance(target.player, target.aimPoint) < m_hitchance) {
         return;
     }
 
     // Min damage check
-    if (!CheckDamage(target.player, target.aimPoint, m_minDamage)) {
+    if (CalculateDamage(target.player, target.aimPoint) < m_minDamage) {
         return;
     }
 
@@ -152,7 +153,7 @@ float Ragebot::CalculateHitchance(C_BasePlayer* player, const Vector3& point) {
     int total = 128;
 
     for (int i = 0; i < total; i++) {
-        Vector3 spread = GetSpread(player->GetActiveWeapon(), i);
+        Vector3 spread = GetSpread((C_BasePlayer*)player->GetActiveWeapon(), i);
         Vector3 predicted = point + spread;
         if (TraceBullet(player, GetLocalEyePos(), predicted)) {
             hits++;
@@ -173,7 +174,7 @@ float Ragebot::CalculateDamage(C_BasePlayer* player, const Vector3& point) {
         damage *= 0.85f;
     }
 
-    return std::max(0.0f, damage);
+    return (damage > 0.0f) ? damage : 0.0f;
 }
 
 Vector3 Ragebot::CalculateAngle(const Vector3& src, const Vector3& dst) {

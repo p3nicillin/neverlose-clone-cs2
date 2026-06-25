@@ -119,14 +119,12 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\vendor\imgui;$(ProjectDir)vendor\sol2\include;$(ProjectDir)..\vendor\lua;$(ProjectDir)..\vendor\nlohmann</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\vendor\imgui;$(ProjectDir)..\vendor\sol2;$(ProjectDir)..\vendor\lua;$(ProjectDir)..\vendor</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)vendor\lua</AdditionalLibraryDirectories>
-      <AdditionalDependencies>lua55.lib</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -141,20 +139,22 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\vendor\imgui;$(ProjectDir)vendor\sol2\include;$(ProjectDir)..\vendor\lua;$(ProjectDir)..\vendor\nlohmann</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\vendor\imgui;$(ProjectDir)..\vendor\sol2;$(ProjectDir)..\vendor\lua;$(ProjectDir)..\vendor</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)vendor\lua</AdditionalLibraryDirectories>
-      <AdditionalDependencies>lua55.lib</AdditionalDependencies>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\vendor\imgui\imgui.cpp" />
+    <ClCompile Include="..\vendor\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\vendor\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\vendor\imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\src\antiaim.cpp" />
     <ClCompile Include="..\src\anti_debug.cpp" />
     <ClCompile Include="..\src\cheat_core.cpp" />
@@ -163,8 +163,12 @@
     <ClCompile Include="..\src\dll_main.cpp" />
     <ClCompile Include="..\src\legitbot.cpp" />
     <ClCompile Include="..\src\logger.cpp" />
-    <ClCompile Include="..\src\lua_api.cpp" />
-    <ClCompile Include="..\src\lua_std.cpp" />
+    <ClCompile Include="..\src\lua_api.cpp">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\src\lua_std.cpp">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\src\memory.cpp" />
     <ClCompile Include="..\src\misc.cpp" />
     <ClCompile Include="..\src\offsets.cpp" />

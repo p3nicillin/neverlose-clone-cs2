@@ -1,78 +1,126 @@
 // =================================================================
-// driver_main.c - Kernel driver entry point for VAC bypass
+// driver_main.c - Kernel driver entry point
 // =================================================================
 
-#include <ntddk.h>
-#include <wdm.h>
+#define _KERNEL_MODE_DRIVER
+#include "kernel_defs.h"
+#include "inject.h"
 #include "vac_bypass.h"
 #include "hooks.h"
 #include "memory.h"
 #include "utils.h"
 
-#define DRIVER_TAG 'cNvL'
 #define POOL_TAG 'cNvL'
 
-static PVAC_BYPASS_CONTEXT g_Context = NULL;
-static KEVENT g_UnloadEvent;
+PVAC_BYPASS_CONTEXT g_Context = NULL;
+
+DRIVER_UNLOAD DriverUnload;
+DRIVER_DISPATCH DriverCreate;
+DRIVER_DISPATCH DriverClose;
+DRIVER_DISPATCH DriverIoControl;
+
+extern NTSTATUS KernelInjectDLL(PINJECT_REQUEST req);
+
+// -----------------------------------------------------------------
+// IRP_MJ_CREATE / IRP_MJ_CLOSE
+// -----------------------------------------------------------------
+NTSTATUS DriverCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS DriverClose(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+// -----------------------------------------------------------------
+// IRP_MJ_DEVICE_CONTROL - handles IOCTL_INJECT_DLL
+// -----------------------------------------------------------------
+NTSTATUS DriverIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp) {
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+    ULONG code  = stack->Parameters.DeviceIoControl.IoControlCode;
+    ULONG inLen = stack->Parameters.DeviceIoControl.InputBufferLength;
+
+    NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
+
+    if (code == IOCTL_INJECT_DLL) {
+        if (inLen >= sizeof(INJECT_REQUEST)) {
+            PINJECT_REQUEST req = (PINJECT_REQUEST)Irp->AssociatedIrp.SystemBuffer;
+            status = KernelInjectDLL(req);
+        } else {
+            status = STATUS_BUFFER_TOO_SMALL;
+        }
+    }
+
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+}
 
 // -----------------------------------------------------------------
 // Driver entry point
 // -----------------------------------------------------------------
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
-    NTSTATUS status = STATUS_SUCCESS;
+    NTSTATUS status;
     UNREFERENCED_PARAMETER(RegistryPath);
 
-    DbgPrint("[Neverlose] Driver loaded\n");
+    DbgPrint("[Neverlose] Driver loading...\n");
 
     // Allocate context
     g_Context = (PVAC_BYPASS_CONTEXT)ExAllocatePoolWithTag(NonPagedPool, sizeof(VAC_BYPASS_CONTEXT), POOL_TAG);
     if (!g_Context) {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
-
     RtlZeroMemory(g_Context, sizeof(VAC_BYPASS_CONTEXT));
 
-    // Initialize event
-    KeInitializeEvent(&g_UnloadEvent, NotificationEvent, FALSE);
-
-    // Set unload routine
-    DriverObject->DriverUnload = DriverUnload;
-
-    // Initialize memory system
-    status = Memory_Initialize();
+    // Create device object for user-mode communication
+    UNICODE_STRING deviceName;
+    RtlInitUnicodeString(&deviceName, NEVERLOSE_DEVICE_NAME);
+    PDEVICE_OBJECT deviceObject = NULL;
+    status = IoCreateDevice(DriverObject, 0, &deviceName,
+                            NEVERLOSE_DEVICE_TYPE, FILE_DEVICE_SECURE_OPEN,
+                            FALSE, &deviceObject);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] Failed to initialize memory\n");
+        DbgPrint("[Neverlose] IoCreateDevice failed: 0x%08X\n", status);
         ExFreePoolWithTag(g_Context, POOL_TAG);
         return status;
     }
 
-    // Initialize hidden regions
-    Status = HideRegions_Initialize();
+    // Create symbolic link so user-mode can open \\.\NeverloseDrv
+    UNICODE_STRING symLink;
+    RtlInitUnicodeString(&symLink, NEVERLOSE_SYMLINK);
+    status = IoCreateSymbolicLink(&symLink, &deviceName);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] Failed to initialize hidden regions\n");
+        DbgPrint("[Neverlose] IoCreateSymbolicLink failed: 0x%08X\n", status);
+        IoDeleteDevice(deviceObject);
         ExFreePoolWithTag(g_Context, POOL_TAG);
         return status;
     }
 
-    // Install hooks
-    status = InstallHooks();
-    if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] Failed to install hooks\n");
-        RemoveHooks();
-        ExFreePoolWithTag(g_Context, POOL_TAG);
-        return status;
-    }
+    deviceObject->Flags |= DO_BUFFERED_IO;
+    deviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 
-    // Patch VAC modules
-    PatchVACModules();
+    // Set dispatch routines
+    DriverObject->DriverUnload                          = DriverUnload;
+    DriverObject->MajorFunction[IRP_MJ_CREATE]         = DriverCreate;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE]          = DriverClose;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DriverIoControl;
 
-    // Block VAC threads
-    BlockVACThreads();
+    // Initialize subsystems
+    Memory_Initialize();
+    HideRegions_Initialize();
 
-    // Disable VAC service
-    DisableVACService();
-
-    DbgPrint("[Neverlose] Driver initialized successfully\n");
+    DbgPrint("[Neverlose] Driver loaded, device ready\n");
     return STATUS_SUCCESS;
 }
 
@@ -82,13 +130,17 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 void DriverUnload(PDRIVER_OBJECT DriverObject) {
     DbgPrint("[Neverlose] Driver unloading...\n");
 
-    // Remove hooks
-    RemoveHooks();
+    // Remove symbolic link and device
+    UNICODE_STRING symLink;
+    RtlInitUnicodeString(&symLink, NEVERLOSE_SYMLINK);
+    IoDeleteSymbolicLink(&symLink);
 
-    // Clean up hidden regions
+    if (DriverObject->DeviceObject) {
+        IoDeleteDevice(DriverObject->DeviceObject);
+    }
+
     HideRegions_Cleanup();
 
-    // Free context
     if (g_Context) {
         ExFreePoolWithTag(g_Context, POOL_TAG);
         g_Context = NULL;

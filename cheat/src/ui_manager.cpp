@@ -3,10 +3,11 @@
 // =================================================================
 
 #include "ui_manager.h"
+#include "cheat_core.h"
+#include "lua_api.h"
 #include "logger.h"
 #include "config.h"
 #include <imgui.h>
-#include <imgui_impl_win32.h>
 
 // Global UI manager instance
 UIManager* g_UIManager = nullptr;
@@ -127,7 +128,7 @@ void UIManager::SetupStyle() {
     style.Colors[ImGuiCol_FrameBgActive] = ImColor(50, 50, 60, 255);
     style.Colors[ImGuiCol_Tab] = ImColor(30, 30, 38, 255);
     style.Colors[ImGuiCol_TabHovered] = ImColor(50, 50, 60, 255);
-    style.Colors[ImGuiCol_TabActive] = ImColor(0, 200, 255, 255);
+    style.Colors[ImGuiCol_TabSelected] = ImColor(0, 200, 255, 255);
     style.Colors[ImGuiCol_Header] = ImColor(0, 200, 255, 50);
     style.Colors[ImGuiCol_HeaderHovered] = ImColor(0, 200, 255, 100);
     style.Colors[ImGuiCol_HeaderActive] = ImColor(0, 200, 255, 150);
@@ -217,7 +218,7 @@ void UIManager::RenderMenu() {
 void UIManager::RenderRagebotTab() {
     Config* config = g_Cheat->GetConfig();
 
-    ImGui::BeginChild("RagebotLeft", ImVec2(ImGui::GetWindowContentRegionWidth() * 0.5f, 0), true);
+    ImGui::BeginChild("RagebotLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
     ImGui::Checkbox("Ragebot Enabled", &config->m_ragebotEnabled);
     ImGui::SliderFloat("FOV", &config->m_ragebotFOV, 0.0f, 180.0f);
     ImGui::SliderFloat("Smooth", &config->m_ragebotSmooth, 0.0f, 10.0f);
@@ -249,7 +250,7 @@ void UIManager::RenderRagebotTab() {
 void UIManager::RenderAntiAimTab() {
     Config* config = g_Cheat->GetConfig();
 
-    ImGui::BeginChild("AntiAimLeft", ImVec2(ImGui::GetWindowContentRegionWidth() * 0.5f, 0), true);
+    ImGui::BeginChild("AntiAimLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
     ImGui::Checkbox("Anti-Aim Enabled", &config->m_antiaimEnabled);
     ImGui::Combo("Mode", &config->m_antiaimMode, 
         "Backward\0Jitter\0Spin\0Sideways\0Desync\0Jitter 3-Way\0Custom\0");
@@ -282,7 +283,7 @@ void UIManager::RenderAntiAimTab() {
 void UIManager::RenderVisualsTab() {
     Config* config = g_Cheat->GetConfig();
 
-    ImGui::BeginChild("VisualsLeft", ImVec2(ImGui::GetWindowContentRegionWidth() * 0.333f, 0), true);
+    ImGui::BeginChild("VisualsLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
     ImGui::Checkbox("Visuals Enabled", &config->m_visualsEnabled);
     ImGui::Separator();
     ImGui::Checkbox("ESP Enabled", &config->m_espEnabled);
@@ -296,7 +297,7 @@ void UIManager::RenderVisualsTab() {
 
     ImGui::SameLine();
 
-    ImGui::BeginChild("VisualsCenter", ImVec2(ImGui::GetWindowContentRegionWidth() * 0.333f, 0), true);
+    ImGui::BeginChild("VisualsCenter", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
     ImGui::Checkbox("Skeleton", &config->m_espSkeleton);
     ImGui::Checkbox("Snaplines", &config->m_espSnaplines);
     ImGui::Checkbox("Distance", &config->m_espDistance);
@@ -336,7 +337,7 @@ void UIManager::RenderMiscTab() {
     Config* config = g_Cheat->GetConfig();
 
     // Misc features in columns
-    ImGui::BeginChild("MiscLeft", ImVec2(ImGui::GetWindowContentRegionWidth() * 0.333f, 0), true);
+    ImGui::BeginChild("MiscLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
     ImGui::Checkbox("Knife Bot", &config->m_knifeBot);
     ImGui::Checkbox("Vote Reveal", &config->m_voteReveal);
     ImGui::Checkbox("Skin Changer", &config->m_skinChanger);
@@ -349,7 +350,7 @@ void UIManager::RenderMiscTab() {
 
     ImGui::SameLine();
 
-    ImGui::BeginChild("MiscCenter", ImVec2(ImGui::GetWindowContentRegionWidth() * 0.333f, 0), true);
+    ImGui::BeginChild("MiscCenter", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
     ImGui::Checkbox("HUD Removal", &config->m_hudRemoval);
     ImGui::Checkbox("Skybox Removal", &config->m_skyboxRemoval);
     ImGui::Checkbox("Shadow Removal", &config->m_shadowRemoval);
@@ -397,7 +398,7 @@ void UIManager::RenderConfigTab() {
     auto configs = config->GetList();
     for (auto& cfg : configs) {
         if (ImGui::Selectable(cfg.c_str())) {
-            strcpy(configName, cfg.c_str());
+            strcpy_s(configName, sizeof(configName), cfg.c_str());
         }
     }
 

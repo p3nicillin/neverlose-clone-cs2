@@ -5,7 +5,6 @@
 #include "hooks.h"
 #include "vac_bypass.h"
 #include "utils.h"
-#include <ntddk.h>
 
 extern PVAC_BYPASS_CONTEXT g_Context;
 
@@ -174,7 +173,7 @@ NTSTATUS HookedNtWriteVirtualMemory(
 // -----------------------------------------------------------------
 NTSTATUS HookedNtQueryInformationProcess(
     HANDLE ProcessHandle,
-    PROCESS_INFORMATION_CLASS ProcessInformationClass,
+    PROCESSINFOCLASS ProcessInformationClass,
     PVOID ProcessInformation,
     ULONG ProcessInformationLength,
     PULONG ReturnLength

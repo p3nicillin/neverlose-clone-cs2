@@ -7,6 +7,7 @@
 #include "logger.h"
 #include <vector>
 #include <algorithm>
+#include <string>
 
 static std::unordered_map<std::string, uintptr_t> g_Offsets;
 static bool g_Initialized = false;
@@ -91,7 +92,7 @@ bool Offsets::Initialize() {
                 g_Offsets[entry->name] = entry->offset;
                 Logger::Log("Using fallback offset: %s = 0x%p", entry->name, entry->offset);
             } else {
-                Logger::LogWarning("Failed to find offset: %s", entry->name);
+                Logger::LogWarning(std::string("Failed to find offset: ") + entry->name);
             }
         }
     }

@@ -4,8 +4,7 @@
 
 #pragma once
 
-#include <ntddk.h>
-#include <wdm.h>
+#include "kernel_defs.h"
 
 typedef struct _VAC_BYPASS_CONTEXT {
     ULONG_PTR OriginalNtQueryVirtualMemory;
@@ -32,6 +31,13 @@ typedef struct _VAC_PATTERN {
     UCHAR pattern[32];
     ULONG patternLength;
 } VAC_PATTERN, * PVAC_PATTERN;
+
+// Function pointer types used by hooks.c
+typedef NTSTATUS (*NtQueryVirtualMemory_t)(HANDLE, PVOID, MEMORY_INFORMATION_CLASS, PVOID, SIZE_T, PSIZE_T);
+typedef NTSTATUS (*NtReadVirtualMemory_t)(HANDLE, PVOID, PVOID, SIZE_T, PSIZE_T);
+typedef NTSTATUS (*NtWriteVirtualMemory_t)(HANDLE, PVOID, PVOID, SIZE_T, PSIZE_T);
+typedef NTSTATUS (*NtQueryInformationProcess_t)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
+
 
 // Function declarations
 NTSTATUS PatchVACModules();
