@@ -1,0 +1,28 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# C++ files
+*.cpp text diff=cpp
+*.h text diff=cpp
+*.c text diff=c
+*.hpp text diff=cpp
+
+# Batch files
+*.bat text eol=crlf
+
+# Visual Studio files
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.vcxproj.filters text eol=crlf
+
+# Config files
+*.json text
+*.xml text
+
+# Binary files
+*.dll binary
+*.exe binary
+*.sys binary
+*.pdb binary
+*.lib binary
+*.obj binary

@@ -4,6 +4,14 @@
 *.suo
 *.userosscache
 *.sln.docstates
+*.sdf
+*.opensdf
+*.opendb
+*.db
+*.ipch
+*.VC.db
+*.VC.VC.opendb
+*.VC.VC.db
 
 # Build output directories
 build/
@@ -14,10 +22,13 @@ x64/
 x86/
 [Bb]in/
 [Oo]bj/
+/out/
+/output/
 
 # Compiler / linker artifacts
 *.obj
 *.o
+*.pch
 *.pdb
 *.ipdb
 *.iobj
@@ -29,13 +40,39 @@ x86/
 *.lastbuildstate
 *.recipe
 *.CppClean.log
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlb
+*.tli
+*.tlh
+*.tmp
+*.tmp_proj
+*.pidb
+*.svclog
+*.scc
+*.cachefile
+*.vspscc
+*.vssscc
+.builds
 
 # Binaries (rebuild from source)
 *.exe
 *.dll
 *.sys
 *.lib
+*.cat
+*.inf
 
-# Misc
-*.tmp
+# Lua compiled files
+*.luac
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
