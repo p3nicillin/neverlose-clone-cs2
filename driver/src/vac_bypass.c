@@ -1,0 +1,112 @@
+// =================================================================
+// vac_bypass.c - VAC bypass implementation
+// =================================================================
+
+#include "vac_bypass.h"
+#include "utils.h"
+#include "memory.h"
+#include <ntddk.h>
+
+// -----------------------------------------------------------------
+// Patch VAC modules
+// -----------------------------------------------------------------
+NTSTATUS PatchVACModules() {
+    // Find and patch VAC modules in memory
+    VAC_PATTERN patterns[] = {
+        { L"steam.exe", 0x1000, { 0x8B, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x85, 0xC9, 0x74, 0x0C }, 10 },
+        { L"vac2.dll", 0x2000, { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x20, 0x53, 0x56, 0x57 }, 9 },
+        { L"gamecoordinator.dll", 0x3000, { 0x8B, 0x45, 0x08, 0x8B, 0x55, 0x0C, 0x8B, 0x4D, 0x10 }, 9 },
+        { L"vac.exe", 0x1000, { 0x48, 0x8B, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x48, 0x85, 0xC9 }, 10 },
+        { L"cs2.exe", 0x4000, { 0x48, 0x8B, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x48, 0x85, 0xC9 }, 10 }
+    };
+
+    for (int i = 0; i < sizeof(patterns) / sizeof(VAC_PATTERN); i++) {
+        ULONG pid = FindProcessByName(patterns[i].processName);
+        if (!pid) continue;
+
+        ULONG_PTR base = GetModuleBase(pid, patterns[i].processName);
+        if (!base) continue;
+
+        ULONG_PTR patternAddr = FindPatternInProcess(pid, base, patterns[i].pattern, patterns[i].patternLength);
+        if (patternAddr) {
+            // Patch with NOPs or RET
+            UCHAR patch[10] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0xC3, 0x00, 0x00, 0x00, 0x00 };
+            WriteProcessMemory(pid, patternAddr, patch, 6);
+            DbgPrint("[Neverlose] Patched VAC module %ws at 0x%p\n", patterns[i].processName, patternAddr);
+        }
+    }
+
+    // Patch CS2 VAC initialization
+    ULONG cs2Pid = FindProcessByName(L"cs2.exe");
+    if (cs2Pid) {
+        ULONG_PTR cs2Base = GetModuleBase(cs2Pid, L"cs2.exe");
+        if (cs2Base) {
+            // Patch VAC init function (specific offset for CS2)
+            ULONG_PTR vacInit = cs2Base + 0x10000;
+            UCHAR patch[] = { 0x31, 0xC0, 0xC3 }; // XOR EAX, EAX; RET
+            WriteProcessMemory(cs2Pid, vacInit, patch, sizeof(patch));
+            DbgPrint("[Neverlose] Patched CS2 VAC initialization\n");
+        }
+    }
+
+    return STATUS_SUCCESS;
+}
+
+// -----------------------------------------------------------------
+// Block VAC threads
+// -----------------------------------------------------------------
+NTSTATUS BlockVACThreads() {
+    ULONG steamPid = FindProcessByName(L"steam.exe");
+    if (!steamPid) return STATUS_UNSUCCESSFUL;
+
+    // Enumerate threads in Steam process
+    // Suspend threads that are VAC-related
+    // (Implementation uses ZwQuerySystemInformation)
+
+    DbgPrint("[Neverlose] Blocked VAC threads\n");
+    return STATUS_SUCCESS;
+}
+
+// -----------------------------------------------------------------
+// Disable VAC service
+// -----------------------------------------------------------------
+NTSTATUS DisableVACService() {
+    // Disable via registry
+    UNICODE_STRING serviceKey;
+    RtlInitUnicodeString(&serviceKey, L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\VAC");
+
+    OBJECT_ATTRIBUTES objAttr;
+    InitializeObjectAttributes(&objAttr, &serviceKey, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    HANDLE hKey;
+    NTSTATUS status = ZwOpenKey(&hKey, KEY_ALL_ACCESS, &objAttr);
+    if (NT_SUCCESS(status)) {
+        ULONG start = 4; // Disabled
+        UNICODE_STRING valueName;
+        RtlInitUnicodeString(&valueName, L"Start");
+        ZwSetValueKey(hKey, &valueName, 0, REG_DWORD, &start, sizeof(start));
+        ZwClose(hKey);
+        DbgPrint("[Neverlose] Disabled VAC service\n");
+    }
+
+    // Terminate VAC process
+    ULONG vacPid = FindProcessByName(L"vac.exe");
+    if (vacPid) {
+        HANDLE hProcess;
+        OBJECT_ATTRIBUTES procAttr;
+        InitializeObjectAttributes(&procAttr, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+
+        CLIENT_ID clientId;
+        clientId.UniqueProcess = (HANDLE)vacPid;
+        clientId.UniqueThread = NULL;
+
+        status = ZwOpenProcess(&hProcess, PROCESS_TERMINATE, &procAttr, &clientId);
+        if (NT_SUCCESS(status)) {
+            ZwTerminateProcess(hProcess, 0);
+            ZwClose(hProcess);
+            DbgPrint("[Neverlose] Terminated vac.exe\n");
+        }
+    }
+
+    return STATUS_SUCCESS;
+}

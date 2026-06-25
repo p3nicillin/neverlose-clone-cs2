@@ -1,0 +1,41 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build output directories
+build/
+outputs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+
+# Compiler / linker artifacts
+*.obj
+*.o
+*.pdb
+*.ipdb
+*.iobj
+*.idb
+*.exp
+*.ilk
+*.log
+*.tlog
+*.lastbuildstate
+*.recipe
+*.CppClean.log
+
+# Binaries (rebuild from source)
+*.exe
+*.dll
+*.sys
+*.lib
+
+# Misc
+*.tmp
+Thumbs.db
