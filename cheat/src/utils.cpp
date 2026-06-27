@@ -172,24 +172,23 @@ Vector3 Utils::VectorToAngle(const Vector3& vec) {
 // -----------------------------------------------------------------
 // World to screen conversion (3D to 2D)
 // -----------------------------------------------------------------
-bool Utils::WorldToScreen(const Vector3& worldPos, Vector2& screenPos, const Matrix4x4& viewMatrix) {
-    float w = viewMatrix.m[3][0] * worldPos.x + viewMatrix.m[3][1] * worldPos.y + 
+bool Utils::WorldToScreen(const Vector3& worldPos, Vector2& screenPos, const Matrix4x4& viewMatrix, int screenW, int screenH) {
+    float w = viewMatrix.m[3][0] * worldPos.x + viewMatrix.m[3][1] * worldPos.y +
               viewMatrix.m[3][2] * worldPos.z + viewMatrix.m[3][3];
-    
-    if (w < 0.001f) {
-        return false;
-    }
+    if (w < 0.001f) return false;
 
     float invW = 1.0f / w;
-    float x = viewMatrix.m[0][0] * worldPos.x + viewMatrix.m[0][1] * worldPos.y +
-              viewMatrix.m[0][2] * worldPos.z + viewMatrix.m[0][3];
-    float y = viewMatrix.m[1][0] * worldPos.x + viewMatrix.m[1][1] * worldPos.y +
-              viewMatrix.m[1][2] * worldPos.z + viewMatrix.m[1][3];
+    float x    = viewMatrix.m[0][0] * worldPos.x + viewMatrix.m[0][1] * worldPos.y +
+                 viewMatrix.m[0][2] * worldPos.z + viewMatrix.m[0][3];
+    float y    = viewMatrix.m[1][0] * worldPos.x + viewMatrix.m[1][1] * worldPos.y +
+                 viewMatrix.m[1][2] * worldPos.z + viewMatrix.m[1][3];
 
-    screenPos.x = (640.0f / 2.0f) + (x * invW * 640.0f / 2.0f);
-    screenPos.y = (480.0f / 2.0f) - (y * invW * 480.0f / 2.0f);
+    float hw = screenW * 0.5f, hh = screenH * 0.5f;
+    screenPos.x = hw + x * invW * hw;
+    screenPos.y = hh - y * invW * hh;
 
-    return true;
+    return screenPos.x >= 0.f && screenPos.x <= (float)screenW &&
+           screenPos.y >= 0.f && screenPos.y <= (float)screenH;
 }
 
 // -----------------------------------------------------------------

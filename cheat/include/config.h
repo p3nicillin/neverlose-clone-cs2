@@ -143,6 +143,18 @@ public:
     bool m_autoPistol;
     bool m_autoReload;
 
+    // Active misc features
+    bool m_bunnyhop;
+    bool m_noRecoil;
+    bool m_noFlash;
+
+    // Aimbot
+    bool  m_aimbotEnabled;
+    int   m_aimbotKey;        // 0 = LMB
+    float m_aimbotFov;        // degrees, max activation radius
+    float m_aimbotSmooth;     // 1 = instant, higher = slower
+    bool  m_aimbotTeamcheck;  // shoot teammates (off = safe)
+
 private:
     void LoadDefaultConfig();
 

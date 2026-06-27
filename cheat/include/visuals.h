@@ -22,6 +22,9 @@ public:
 
     void Render();
 
+    bool IsEnabled()     const { return m_enabled && m_espEnabled; }
+    bool IsNameEnabled() const { return m_espName; }
+
     // Settings
     bool m_enabled;
 

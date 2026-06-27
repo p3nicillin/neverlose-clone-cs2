@@ -1,103 +1,78 @@
-// =================================================================
-// game_classes.h - Game class definitions
-// =================================================================
-
 #pragma once
-
-#include "utils.h"  // This includes Vector3
-#include <string>
-#include <vector>
 #include <cstdint>
+#include <string>
+#include "utils.h"   // Vector3, Vector2 defined here
+#include "offsets.h"
+#include "memory.h"
 
-// Buttons
-#define IN_ATTACK      (1 << 0)
-#define IN_JUMP        (1 << 1)
-#define IN_DUCK        (1 << 2)
-#define IN_FORWARD     (1 << 3)
-#define IN_BACK        (1 << 4)
-#define IN_USE         (1 << 5)
-#define IN_MOVELEFT    (1 << 7)
-#define IN_MOVERIGHT   (1 << 8)
-#define IN_ATTACK2     (1 << 9)
-#define IN_RELOAD      (1 << 13)
-#define IN_SCORE       (1 << 16)
+// ViewMatrix is an alias for the existing Matrix4x4 in utils.h
+using ViewMatrix = Matrix4x4;
 
-// Hitbox constants
-enum Hitbox {
-    HITBOX_HEAD = 0,
-    HITBOX_NECK,
-    HITBOX_CHEST,
-    HITBOX_STOMACH,
-    HITBOX_PELVIS,
-    HITBOX_LEFT_ARM,
-    HITBOX_RIGHT_ARM,
-    HITBOX_LEFT_LEG,
-    HITBOX_RIGHT_LEG,
-    HITBOX_MAX
-};
+// ---------------------------------------------------------------------------
+// CS2 entity system helpers — all in-process direct reads
+// ---------------------------------------------------------------------------
+namespace CS2 {
 
-// -----------------------------------------------------------------
-// CUserCmd - User command structure
-// -----------------------------------------------------------------
-struct CUserCmd {
-    uint32_t commandNumber;
-    uint32_t tickCount;
-    Vector3 viewangles;
-    Vector3 aimdirection;
-    float forwardmove;
-    float sidemove;
-    float upmove;
-    uint32_t buttons;
-    uint8_t impulse;
-    uint32_t weaponSelect;
-    uint32_t randomSeed;
-    short mouseDx;
-    short mouseDy;
-    bool hasBeenPredicted;
-};
+template<typename T>
+inline T Read(uintptr_t addr) {
+    T v{}; Memory::Read(addr, &v, sizeof(T)); return v;
+}
+inline bool Read(uintptr_t addr, void* buf, size_t sz) {
+    return Memory::Read(addr, buf, sz);
+}
 
-// -----------------------------------------------------------------
-// C_BasePlayer - Player class
-// -----------------------------------------------------------------
-class C_BasePlayer {
-public:
-    bool IsAlive() const { return true; }
-    bool IsLocal() const { return false; }
-    bool IsEnemy() const { return true; }
-    bool IsVisible(const Vector3& point) const { return true; }
-    Vector3 GetOrigin() const { return Vector3(0, 0, 0); }
-    Vector3 GetVelocity() const { return Vector3(0, 0, 0); }
-    Vector3 GetEyePos() const { return Vector3(0, 0, 0); }
-    Vector3 GetBonePos(int bone) const { return Vector3(0, 0, 0); }
-    Vector3 GetHitboxPos(int hitbox) const { return Vector3(0, 0, 0); }
-    int GetHealth() const { return 100; }
-    int GetArmor() const { return 0; }
-    int GetTeam() const { return 2; }
-    int GetFlags() const { return 1; }
-    float GetLowerBodyYaw() const { return 0.0f; }
-    void* GetActiveWeapon() const { return nullptr; }
-    std::string GetName() const { return "Player"; }
-    Vector3 GetBacktrackPosition(float time) const { return Vector3(0, 0, 0); }
-    bool IsScoped() const { return false; }
-    bool IsReloading() const { return false; }
-    bool IsFlashed() const { return false; }
-    void TakeDamage(float damage) {}
-    void SetOrigin(const Vector3& origin) {}
-    void SetHealth(int health) {}
-};
+inline std::string ReadString(uintptr_t addr, size_t len = 64) {
+    char buf[128] = {};
+    Memory::Read(addr, buf, len < 127 ? len : 127);
+    return buf;
+}
 
-// -----------------------------------------------------------------
-// EntityList - Entity management
-// -----------------------------------------------------------------
-class EntityList {
-public:
-    static std::vector<C_BasePlayer*> GetAllPlayers() {
-        return std::vector<C_BasePlayer*>();
-    }
-    static C_BasePlayer* GetPlayerByIndex(int index) {
-        return nullptr;
-    }
-    static C_BasePlayer* GetLocalPlayer() {
-        return nullptr;
-    }
-};
+// CS2 entity list (confirmed via catalyst repo, 2025):
+//   chunk ptr at: listBase + (idx>>9)*8 + 0x10
+//   entity ptr at: chunk + (idx & 0x1FF) * 112   ← stride is 112 (0x70), NOT 120
+//   entity ptr == 0  means empty slot (no identity struct indirection needed)
+inline uintptr_t GetEntityByIndex(uintptr_t listBase, int idx) {
+    if (idx < 0 || idx >= 0x7FFF) return 0;
+    uintptr_t chunk = Read<uintptr_t>(listBase + (idx >> 9) * 8 + 0x10);
+    if (!chunk) return 0;
+    return Read<uintptr_t>(chunk + (idx & 0x1FF) * 112);
+}
+
+inline uintptr_t HandleToPtr(uintptr_t listBase, uint32_t handle) {
+    if (!handle || handle == 0xFFFFFFFF) return 0;
+    // CS2: lower 15 bits = full entity list index (chunk*512 + slot within chunk)
+    int idx = (int)(handle & 0x7FFF);
+    return GetEntityByIndex(listBase, idx);
+}
+
+// Pawn from controller
+inline uintptr_t GetPawn(uintptr_t listBase, uintptr_t controller) {
+    uint32_t h = Read<uint32_t>(controller + Offsets::Get("m_hPlayerPawn", 0x83C));
+    return HandleToPtr(listBase, h);
+}
+
+// Helpers
+inline Vector3 GetAbsOrigin(uintptr_t pawn) {
+    uintptr_t node = Read<uintptr_t>(pawn + Offsets::Get("m_pGameSceneNode", 0x328));
+    if (!node) return {};
+    return Read<Vector3>(node + Offsets::Get("m_vecAbsOrigin", 0x13C));
+}
+
+inline int   GetHealth   (uintptr_t pawn)       { return Read<int>    (pawn + Offsets::Get("m_iHealth",   0x33C)); }
+inline int   GetTeam     (uintptr_t controller) { return Read<int>    (controller + Offsets::Get("m_iTeamNum", 0x3CB)); }
+inline uint8_t GetLife   (uintptr_t pawn)       { return Read<uint8_t>(pawn + Offsets::Get("m_lifeState", 0x338)); }
+inline std::string GetName(uintptr_t controller){ return ReadString(controller + Offsets::Get("m_sSanitizedPlayerName", 0x700)); }
+
+inline Matrix4x4 GetViewMatrix() {
+    uintptr_t va = Offsets::Get("dwViewMatrix");
+    if (!va) return {};
+    return Read<Matrix4x4>(va);
+}
+
+// World-to-screen using existing Utils::WorldToScreen
+inline bool W2S(const Vector3& world, Vector2& screen) {
+    Matrix4x4 vm = GetViewMatrix();
+    return Utils::WorldToScreen(world, screen, vm);
+}
+
+} // namespace CS2

@@ -4,6 +4,7 @@
 
 #include "injection.h"
 #include "inject_ioctl.h"
+#include "manual_map.h"
 #include <windows.h>
 #include <TlHelp32.h>
 #include <Psapi.h>
@@ -11,18 +12,90 @@
 #include <string>
 
 // -----------------------------------------------------------------
-// Inject DLL via kernel driver (IOCTL_INJECT_DLL)
+// User-mode injection: manual map (no LoadLibrary, no LDR notifications)
+// -----------------------------------------------------------------
+static bool InjectDLLUserMode(DWORD pid, const std::string& dllPath) {
+    std::cout << "[*] Using manual map injection (stealth, no LDR notifications)\n";
+
+    wchar_t absPathW[MAX_PATH] = {};
+    GetFullPathNameW(std::wstring(dllPath.begin(), dllPath.end()).c_str(), MAX_PATH, absPathW, nullptr);
+    char absPath[MAX_PATH] = {};
+    WideCharToMultiByte(CP_ACP, 0, absPathW, -1, absPath, MAX_PATH, nullptr, nullptr);
+    std::cout << "[*] DLL: " << absPath << "\n";
+
+    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    if (!hProcess) {
+        std::cerr << "[-] OpenProcess failed: " << GetLastError() << "\n";
+        return false;
+    }
+
+    bool ok = ManualMap(hProcess, std::string(absPath));
+    CloseHandle(hProcess);
+    return ok;
+}
+
+// -----------------------------------------------------------------
+// Legacy LoadLibraryW fallback (kept but not used by default)
+// -----------------------------------------------------------------
+static bool InjectDLLLoadLibrary(DWORD pid, const std::string& dllPath) {
+    std::cout << "[*] Using LoadLibraryW injection (fallback)\n";
+
+    wchar_t absPath[MAX_PATH] = {};
+    GetFullPathNameW(std::wstring(dllPath.begin(), dllPath.end()).c_str(),
+                     MAX_PATH, absPath, NULL);
+    std::wcout << L"[*] DLL path: " << absPath << L"\n";
+
+    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    if (!hProcess) {
+        std::cerr << "[-] OpenProcess failed: " << GetLastError() << "\n";
+        return false;
+    }
+
+    SIZE_T pathBytes = (wcslen(absPath) + 1) * sizeof(wchar_t);
+    LPVOID remoteBuf = VirtualAllocEx(hProcess, NULL, pathBytes,
+                                       MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    if (!remoteBuf || !WriteProcessMemory(hProcess, remoteBuf, absPath, pathBytes, NULL)) {
+        std::cerr << "[-] Failed to write DLL path to process: " << GetLastError() << "\n";
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    FARPROC loadLibW = GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryW");
+    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0,
+                                         (LPTHREAD_START_ROUTINE)loadLibW,
+                                         remoteBuf, 0, NULL);
+    if (!hThread) {
+        std::cerr << "[-] CreateRemoteThread failed: " << GetLastError() << "\n";
+        VirtualFreeEx(hProcess, remoteBuf, 0, MEM_RELEASE);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    WaitForSingleObject(hThread, 5000);
+    DWORD exitCode = 0;
+    GetExitCodeThread(hThread, &exitCode);
+    CloseHandle(hThread);
+    VirtualFreeEx(hProcess, remoteBuf, 0, MEM_RELEASE);
+    CloseHandle(hProcess);
+
+    if (!exitCode) {
+        std::cerr << "[-] LoadLibraryW returned NULL (DLL load failed inside CS2)\n";
+        return false;
+    }
+    return true;
+}
+
+// -----------------------------------------------------------------
+// Inject DLL via kernel driver IOCTL, fall back to user-mode
 // -----------------------------------------------------------------
 bool InjectDLL(DWORD pid, const std::string& dllPath) {
-    // Open the kernel driver device
+    // Try kernel driver first
     HANDLE hDevice = CreateFileW(NEVERLOSE_WIN32_NAME,
                                  GENERIC_READ | GENERIC_WRITE,
                                  0, NULL, OPEN_EXISTING,
                                  FILE_ATTRIBUTE_NORMAL, NULL);
     if (hDevice == INVALID_HANDLE_VALUE) {
-        std::cerr << "[-] Failed to open driver device: " << GetLastError()
-                  << " (driver may not be loaded or requires admin)\n";
-        return false;
+        return InjectDLLUserMode(pid, dllPath);
     }
 
     // Resolve LoadLibraryW address in this process

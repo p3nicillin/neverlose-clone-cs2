@@ -120,7 +120,7 @@ public:
     static float Lerp(float a, float b, float t);
     static Vector3 AngleToVector(const Vector3& angles);
     static Vector3 VectorToAngle(const Vector3& vec);
-    static bool WorldToScreen(const Vector3& worldPos, Vector2& screenPos, const Matrix4x4& viewMatrix);
+    static bool WorldToScreen(const Vector3& worldPos, Vector2& screenPos, const Matrix4x4& viewMatrix, int screenW = 1920, int screenH = 1080);
 
     // Process
     static DWORD GetProcessId(const std::string& processName);

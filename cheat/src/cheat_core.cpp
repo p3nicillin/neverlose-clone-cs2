@@ -16,6 +16,10 @@
 #include "lua_api.h"
 #include "cheat_revealer.h"
 #include "config.h"
+#include "dx11_hook.h"
+#include "aimbot.h"
+#include "create_move.h"
+#include <process.h>
 
 CheatCore* g_Cheat = nullptr;
 
@@ -48,31 +52,31 @@ bool CheatCore::Initialize() {
 
     Logger::Log("Initializing cheat core...");
 
-    // Initialize memory
+    Logger::Log("Step 1: Memory::Initialize");
     if (!Memory::Initialize()) {
         Logger::LogError("Failed to initialize memory");
         return false;
     }
 
-    // Initialize offsets
+    Logger::Log("Step 2: Offsets::Initialize");
     if (!Offsets::Initialize()) {
         Logger::LogError("Failed to initialize offsets");
         return false;
     }
 
-    // Initialize hooks
+    Logger::Log("Step 3: Hooks::Initialize");
     if (!m_hooks->Initialize()) {
         Logger::LogError("Failed to initialize hooks");
         return false;
     }
 
-    // Initialize UI
+    Logger::Log("Step 4: UIManager::Initialize");
     if (!m_ui->Initialize()) {
         Logger::LogError("Failed to initialize UI");
         return false;
     }
 
-    // Initialize Lua
+    Logger::Log("Step 5: LuaAPI::Initialize");
     if (!m_lua->Initialize()) {
         Logger::LogError("Failed to initialize Lua");
         return false;
@@ -86,6 +90,27 @@ bool CheatCore::Initialize() {
 
     // Load default config
     m_config->Load("default");
+
+    Logger::Log("Step 6: Config::Initialize");
+    // (config already initialized above)
+
+    Logger::Log("Step 7: DX11Hook + CreateMove (background, 2s delay)");
+    _beginthreadex(nullptr, 0, [](void*) -> unsigned {
+        Sleep(2000);
+        Logger::Log("DX11Hook: installing...");
+        if (DX11Hook::Install())
+            Logger::Log("DX11Hook: Present hooked");
+        else
+            Logger::LogError("DX11Hook: install failed");
+
+        Sleep(200);
+        Logger::Log("CreateMove: installing...");
+        if (CreateMoveHook::Install())
+            Logger::Log("CreateMove: hooked");
+        else
+            Logger::LogError("CreateMove: failed — will use misc.cpp fallback");
+        return 0;
+    }, nullptr, 0, nullptr);
 
     m_initialized = true;
     m_running = true;
@@ -114,8 +139,11 @@ void CheatCore::Update() {
     // Run legitbot
     m_legitbot->Run(nullptr);
 
-    // Update misc features
+    // Update misc features (bhop, no recoil, no flash)
     m_misc->Update();
+
+    // Aimbot
+    Aimbot::Update();
 
     // Check for cheats
     m_revealer->Detect();
@@ -123,8 +151,9 @@ void CheatCore::Update() {
     // Fire Lua createmove event
     m_lua->FireEvent("createmove");
 
-    // Update UI
-    m_ui->Update();
+    // NOTE: m_ui->Update() and m_ui->Render() are intentionally NOT called here.
+    // ImGui must only be driven from a single thread (CS2's render thread via
+    // the DX11 Present hook) to avoid races. HookedPresent handles all UI calls.
 }
 
 void CheatCore::Render() {
@@ -138,8 +167,7 @@ void CheatCore::Render() {
     // Fire Lua draw event
     m_lua->FireEvent("draw");
 
-    // Render UI menu
-    m_ui->Render();
+    // m_ui->Render() intentionally omitted — driven by DX11 Present hook only
 }
 
 void CheatCore::Shutdown() {

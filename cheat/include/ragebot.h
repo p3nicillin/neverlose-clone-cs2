@@ -7,6 +7,10 @@
 #include "utils.h"
 #include "game_classes.h"
 
+// CS2 stub types (CS:GO names kept for source compatibility)
+struct CUserCmd { Vector3 viewangles; float forwardmove = 0, sidemove = 0, upmove = 0; int buttons = 0; };
+struct C_BasePlayer { uintptr_t ptr = 0; Vector3 GetVelocity() { return {}; } };
+
 class Ragebot {
 public:
     struct Target {

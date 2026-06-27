@@ -3,105 +3,105 @@
 // =================================================================
 
 #include <windows.h>
+#include <process.h>   // _beginthreadex — initialises CRT per-thread state
 #include <stdio.h>
 #include "cheat_core.h"
 #include "logger.h"
 #include "anti_debug.h"
 
-// g_Cheat is defined in cheat_core.cpp; extern declared in cheat_core.h
-static HANDLE g_MainThread = nullptr;
+static uintptr_t g_MainThread = 0;
 
-// -----------------------------------------------------------------
-// Main thread function
-// -----------------------------------------------------------------
-DWORD WINAPI CheatThread(LPVOID lpParam) {
-    // Initialize logger
-    Logger::Init();
+// SEH filter — swallows exceptions so CS2 keeps running
+static LONG WINAPI CheatSEHFilter(EXCEPTION_POINTERS* ep) {
+    char buf[256];
+    sprintf_s(buf, "[Neverlose] SEH 0x%08X at 0x%p\n",
+              ep->ExceptionRecord->ExceptionCode,
+              ep->ExceptionRecord->ExceptionAddress);
+    Logger::Log(buf);
+    OutputDebugStringA(buf);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 
-    // Create cheat instance
-    g_Cheat = new CheatCore();
-    if (!g_Cheat) {
-        Logger::LogError("Failed to create cheat instance");
-        return 1;
+// Raw Win32 log — no CRT, safe from DllMain / before CRT init
+static void RawLog(const char* msg) {
+    char path[MAX_PATH];
+    GetTempPathA(MAX_PATH, path);
+    lstrcatA(path, "neverlose.log");
+    HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ,
+                           NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE) {
+        SetFilePointer(h, 0, NULL, FILE_END);
+        DWORD w;
+        WriteFile(h, msg, lstrlenA(msg), &w, NULL);
+        WriteFile(h, "\r\n", 2, &w, NULL);
+        FlushFileBuffers(h);
+        CloseHandle(h);
     }
+    OutputDebugStringA(msg);
+}
 
-    // Initialize anti-debug
+// All C++ code lives here so CheatThread can use __try without C2712
+static void RunCheat() {
+    Logger::Log("RunCheat: start");
+
+    g_Cheat = new CheatCore();
+    Logger::Log("RunCheat: CheatCore created");
+
     AntiDebug antiDebug;
     antiDebug.CheckDebugger();
-    antiDebug.AntiDump();
+    Logger::Log("RunCheat: anti-debug done");
 
-    // Initialize cheat
     if (!g_Cheat->Initialize()) {
-        Logger::LogError("Failed to initialize cheat");
+        Logger::LogError("Cheat initialization failed");
         delete g_Cheat;
         g_Cheat = nullptr;
-        return 1;
+        return;
     }
 
-    Logger::Log("Neverlose.cc loaded successfully");
+    Logger::Log("Neverlose.cc loaded — press INSERT to toggle menu");
 
-    // Main loop
     while (g_Cheat->IsRunning()) {
         g_Cheat->Update();
         Sleep(1);
     }
 
-    // Cleanup
     g_Cheat->Shutdown();
     delete g_Cheat;
     g_Cheat = nullptr;
-
     Logger::Log("Neverlose.cc unloaded");
     Logger::Shutdown();
+}
+
+// Thread function — unsigned __stdcall required by _beginthreadex
+// _beginthreadex wraps this with CRT per-thread init so std::string etc. work
+static unsigned __stdcall CheatThread(void*) {
+    Logger::Init();
+    Logger::Log("CheatThread: CRT per-thread init OK");
+
+    __try {
+        RunCheat();
+    }
+    __except(CheatSEHFilter(GetExceptionInformation())) {}
 
     return 0;
 }
 
-// -----------------------------------------------------------------
-// DLL Entry Point
-// -----------------------------------------------------------------
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
-    switch (ul_reason_for_call) {
-        case DLL_PROCESS_ATTACH:
-            // Disable thread notifications for performance
-            DisableThreadLibraryCalls(hModule);
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        RawLog("[DllMain] attach");
+        DisableThreadLibraryCalls(hModule);
 
-            // Create console for debugging (will be hidden in release)
-            AllocConsole();
-            FILE* fConsole;
-            freopen_s(&fConsole, "CONOUT$", "w", stdout);
-            freopen_s(&fConsole, "CONOUT$", "w", stderr);
-            SetConsoleTitleA("Neverlose.cc - Console");
+        // _beginthreadex instead of CreateThread — ensures CRT initialises
+        // per-thread data (errno, strtok buffer, etc.) before CheatThread runs
+        g_MainThread = _beginthreadex(nullptr, 0, CheatThread, nullptr, 0, nullptr);
+        RawLog(g_MainThread ? "[DllMain] _beginthreadex OK" : "[DllMain] _beginthreadex FAILED");
 
-            printf("[Neverlose] DLL loaded\n");
-
-            // Create main thread
-            g_MainThread = CreateThread(NULL, 0, CheatThread, NULL, 0, NULL);
-            if (!g_MainThread) {
-                printf("[Neverlose] Failed to create main thread\n");
-                return FALSE;
-            }
-
-            break;
-
-        case DLL_PROCESS_DETACH:
-            // Signal shutdown
-            if (g_Cheat) {
-                g_Cheat->Shutdown();
-            }
-
-            // Wait for main thread to exit
-            if (g_MainThread) {
-                WaitForSingleObject(g_MainThread, 5000);
-                CloseHandle(g_MainThread);
-                g_MainThread = nullptr;
-            }
-
-            // Free console
-            FreeConsole();
-
-            break;
+    } else if (reason == DLL_PROCESS_DETACH) {
+        if (g_Cheat) g_Cheat->Shutdown();
+        if (g_MainThread) {
+            WaitForSingleObject(reinterpret_cast<HANDLE>(g_MainThread), 3000);
+            CloseHandle(reinterpret_cast<HANDLE>(g_MainThread));
+        }
     }
-
     return TRUE;
 }

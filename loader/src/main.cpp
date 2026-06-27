@@ -116,14 +116,15 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Load kernel driver
+    // Load kernel driver (optional — injection falls back to user-mode if unavailable)
     std::cout << "[*] Loading driver...\n";
-    if (!loader.LoadDriver(driverPath)) {
-        std::cerr << "[-] Failed to load driver\n";
-        Pause();
-        return 1;
+    bool driverLoaded = loader.LoadDriver(driverPath);
+    if (!driverLoaded) {
+        std::cout << "[!] Driver not loaded — continuing with user-mode injection\n";
+        std::cout << "    (VAC bypass features require the driver)\n\n";
+    } else {
+        std::cout << "[+] Driver loaded\n";
     }
-    std::cout << "[+] Driver loaded\n";
 
     // Disable VAC
     std::cout << "[*] Disabling VAC service...\n";

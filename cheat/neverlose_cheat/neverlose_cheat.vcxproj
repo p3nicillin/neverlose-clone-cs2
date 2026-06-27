@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -107,6 +107,8 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>d3d11.dll;dxgi.dll;d3dcompiler_47.dll</DelayLoadDLLs>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -155,13 +157,24 @@
     <ClCompile Include="..\vendor\imgui\imgui_draw.cpp" />
     <ClCompile Include="..\vendor\imgui\imgui_tables.cpp" />
     <ClCompile Include="..\vendor\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="..\src\antiaim.cpp" />
+    <ClCompile Include="..\vendor\imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="..\vendor\imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\src\dx11_hook.cpp" />
+    <ClCompile Include="..\src\antiaim.cpp">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\src\aimbot.cpp" />
+    <ClCompile Include="..\src\feature_stubs.cpp" />
+    <ClCompile Include="..\src\create_move.cpp" />
+    <ClCompile Include="..\src\offset_updater.cpp" />
     <ClCompile Include="..\src\anti_debug.cpp" />
     <ClCompile Include="..\src\cheat_core.cpp" />
     <ClCompile Include="..\src\cheat_revealer.cpp" />
     <ClCompile Include="..\src\config.cpp" />
     <ClCompile Include="..\src\dll_main.cpp" />
-    <ClCompile Include="..\src\legitbot.cpp" />
+    <ClCompile Include="..\src\legitbot.cpp">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\src\logger.cpp" />
     <ClCompile Include="..\src\lua_api.cpp">
       <ExcludedFromBuild>true</ExcludedFromBuild>
@@ -172,7 +185,9 @@
     <ClCompile Include="..\src\memory.cpp" />
     <ClCompile Include="..\src\misc.cpp" />
     <ClCompile Include="..\src\offsets.cpp" />
-    <ClCompile Include="..\src\ragebot.cpp" />
+    <ClCompile Include="..\src\ragebot.cpp">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="..\src\ui_manager.cpp" />
     <ClCompile Include="..\src\utils.cpp" />
     <ClCompile Include="..\src\visuals.cpp" />

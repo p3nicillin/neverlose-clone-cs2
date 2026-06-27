@@ -7,7 +7,13 @@
 #include "lua_api.h"
 #include "logger.h"
 #include "config.h"
+#include "game_classes.h"
+#include "offsets.h"
+#include "memory.h"
+#include "visuals.h"
 #include <imgui.h>
+#include <imgui_impl_dx11.h>
+#include <imgui_impl_win32.h>
 
 // Global UI manager instance
 UIManager* g_UIManager = nullptr;
@@ -17,6 +23,7 @@ UIManager* g_UIManager = nullptr;
 // -----------------------------------------------------------------
 UIManager::UIManager()
     : m_initialized(false)
+    , m_rendererReady(false)
     , m_menuOpen(true)
 {
 }
@@ -42,6 +49,9 @@ bool UIManager::Initialize() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.MouseDrawCursor = false;                          // don't draw software cursor over game
+    io.ConfigFlags    |= ImGuiConfigFlags_NoMouseCursorChange; // don't override system cursor
 
     // Setup style
     SetupStyle();
@@ -76,35 +86,134 @@ void UIManager::Shutdown() {
 // -----------------------------------------------------------------
 // Update UI
 // -----------------------------------------------------------------
+bool UIManager::InitRenderer(ID3D11Device* device, ID3D11DeviceContext* ctx, HWND hwnd) {
+    if (m_rendererReady) return true;
+
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplDX11_Init(device, ctx);
+
+    m_rendererReady = true;
+    Logger::Log("DX11 renderer backend initialized");
+    return true;
+}
+
 void UIManager::Update() {
-    if (!m_initialized) {
-        return;
-    }
+    // Do nothing until the DX11 hook has set up the renderer backend
+    if (!m_initialized || !m_rendererReady) return;
 
-    ImGui::GetIO().DeltaTime = 1.0f / 60.0f;
-
-    // Start new frame
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 
-    // Handle input
+    // Hide ImGui cursor when menu is closed so it doesn't overlay the game
+    ImGui::SetMouseCursor(m_menuOpen ? ImGuiMouseCursor_Arrow : ImGuiMouseCursor_None);
+
     HandleInput();
 }
 
 // -----------------------------------------------------------------
 // Render UI
 // -----------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ESP — drawn every frame on the background draw list (behind the menu)
+// ---------------------------------------------------------------------------
+void UIManager::RenderESP() {
+    if (!g_Cheat) return;
+    Config* cfg = g_Cheat->GetConfig();
+    if (!cfg || !cfg->m_visualsEnabled || !cfg->m_espEnabled) return;
+
+    uintptr_t clientBase    = Memory::GetClientBase();
+    uintptr_t listAddr      = Offsets::Get("dwEntityList");
+    uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
+    if (!clientBase || !listAddr || !localCtrlAddr) return;
+
+    uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
+    uintptr_t localCtrl  = CS2::Read<uintptr_t>(localCtrlAddr);
+    if (!entityList || !localCtrl) return;
+
+    int       localTeam = CS2::GetTeam(localCtrl);
+    Matrix4x4 vm        = CS2::GetViewMatrix();
+
+    ImDrawList* dl  = ImGui::GetBackgroundDrawList();
+    ImVec2      disp = ImGui::GetIO().DisplaySize;
+    int sw = (int)disp.x, sh = (int)disp.y;
+    if (sw <= 0 || sh <= 0) return;
+
+    int nCtrl = 0, nPawn = 0, nAlive = 0, nDrawn = 0;
+    (void)nCtrl; (void)nPawn; (void)nAlive; (void)nDrawn;
+
+    for (int i = 1; i <= 1024; ++i) {
+        uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
+        if (!ctrl || ctrl == localCtrl) continue;
+        nCtrl++;
+
+        // Only draw actual players (team 2=T, 3=CT)
+        int team = CS2::GetTeam(ctrl);
+        if (team != 2 && team != 3) continue;
+        // In deathmatch all teams are enemies; only skip true teammates if option is off
+        bool isTeammate = (team == localTeam);
+        if (isTeammate && !cfg->m_espTeammates) continue;
+
+        uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
+        if (!pawn) continue;
+        nPawn++;
+
+        int hp = CS2::GetHealth(pawn);
+        if (hp <= 0 || hp > 100) continue;
+        nAlive++;
+
+        Vector3 origin = CS2::GetAbsOrigin(pawn);
+        if (origin.x == 0.f && origin.y == 0.f && origin.z == 0.f) continue;
+        // CS2: m_vecAbsOrigin is at player feet; standing height ~72u, head ~68u
+        Vector3 head = { origin.x, origin.y, origin.z + 68.f };
+
+        Vector2 sOrigin, sHead;
+        if (!Utils::WorldToScreen(origin, sOrigin, vm, sw, sh)) continue;
+        if (!Utils::WorldToScreen(head,   sHead,   vm, sw, sh)) continue;
+
+        float boxH = sOrigin.y - sHead.y;
+        if (boxH < 2.f || boxH > (float)sh) continue;
+        float boxW = boxH * 0.45f;
+        nDrawn++;
+
+        ImU32 col = isTeammate
+                    ? IM_COL32(0, 200, 100, 230)   // green = teammate
+                    : IM_COL32(255, 50,  50,  230); // red   = enemy
+
+        float x1 = sHead.x - boxW * 0.5f, y1 = sHead.y;
+        float x2 = sHead.x + boxW * 0.5f, y2 = sOrigin.y;
+
+        if (cfg->m_espBox)
+            dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), col, 0.f, 1.5f);
+
+        if (cfg->m_espHealthBar) {
+            float bx = x1 - 5.f, bh = y2 - y1, fh = bh * (hp / 100.f);
+            ImU32 hc = IM_COL32((int)(255*(1.f-hp/100.f)),(int)(255*(hp/100.f)),0,230);
+            dl->AddRectFilled(ImVec2(bx-2,y1),ImVec2(bx,y2),IM_COL32(0,0,0,160));
+            dl->AddRectFilled(ImVec2(bx-2,y2-fh),ImVec2(bx,y2),hc);
+            char t[8]; sprintf_s(t,"%d",hp);
+            dl->AddText(ImVec2(bx-18.f,y2-fh-6.f),hc,t);
+        }
+
+        if (cfg->m_espName) {
+            std::string name = CS2::GetName(ctrl);
+            if (!name.empty())
+                dl->AddText(ImVec2(x1, y1-14.f), IM_COL32(255,255,255,230), name.c_str());
+        }
+    }
+
+}
+
 void UIManager::Render() {
-    if (!m_initialized) {
-        return;
-    }
+    if (!m_initialized || !m_rendererReady) return;
 
-    // Render menu
-    if (m_menuOpen) {
-        RenderMenu();
-    }
+    RenderESP();
 
-    // Render ImGui
+    if (m_menuOpen) RenderMenu();
+
     ImGui::Render();
+    ImDrawData* dd = ImGui::GetDrawData();
+    if (dd) ImGui_ImplDX11_RenderDrawData(dd);
 }
 
 // -----------------------------------------------------------------
@@ -177,8 +286,9 @@ void UIManager::HandleInput() {
 // Render menu
 // -----------------------------------------------------------------
 void UIManager::RenderMenu() {
-    ImGui::Begin("Neverlose.cc", &m_menuOpen, 
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
+    ImGui::SetNextWindowSize(ImVec2(750, 500), ImGuiCond_Once);
+    ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_Once);
+    ImGui::Begin("Neverlose.cc v1.0", &m_menuOpen, ImGuiWindowFlags_NoCollapse);
 
     // Tabs
     if (ImGui::BeginTabBar("MainTabs")) {
@@ -217,6 +327,19 @@ void UIManager::RenderMenu() {
 // -----------------------------------------------------------------
 void UIManager::RenderRagebotTab() {
     Config* config = g_Cheat->GetConfig();
+
+    // ---- Aimbot section ----
+    ImGui::Text("Aimbot");
+    ImGui::Separator();
+    ImGui::Checkbox("Enabled##aim", &config->m_aimbotEnabled);
+    ImGui::SliderFloat("FOV##aim",    &config->m_aimbotFov,    0.1f, 180.f, "%.1f deg");
+    ImGui::SliderFloat("Smooth##aim", &config->m_aimbotSmooth, 1.f,  20.f,  "%.1f");
+    ImGui::Checkbox("Teamcheck (off = no FF)", &config->m_aimbotTeamcheck);
+    ImGui::Spacing();
+    ImGui::Text("Key: hold LMB to aim (always active while LMB held)");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Legacy Ragebot (stub)");
 
     ImGui::BeginChild("RagebotLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
     ImGui::Checkbox("Ragebot Enabled", &config->m_ragebotEnabled);
@@ -338,14 +461,17 @@ void UIManager::RenderMiscTab() {
 
     // Misc features in columns
     ImGui::BeginChild("MiscLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
-    ImGui::Checkbox("Knife Bot", &config->m_knifeBot);
+    ImGui::Text("Movement");
+    ImGui::Separator();
+    ImGui::Checkbox("Bunny Hop", &config->m_bunnyhop);
+    ImGui::Text("Combat");
+    ImGui::Separator();
+    ImGui::Checkbox("No Recoil", &config->m_noRecoil);
+    ImGui::Text("Utility");
+    ImGui::Separator();
+    ImGui::Checkbox("No Flash", &config->m_noFlash);
     ImGui::Checkbox("Vote Reveal", &config->m_voteReveal);
-    ImGui::Checkbox("Skin Changer", &config->m_skinChanger);
-    ImGui::Checkbox("Name Spammer", &config->m_nameSpammer);
-    ImGui::Checkbox("Clan Tag Spammer", &config->m_clanTagSpammer);
     ImGui::Checkbox("Auto Accept", &config->m_autoAccept);
-    ImGui::Checkbox("Rank Revealer", &config->m_rankRevealer);
-    ImGui::Checkbox("Damage Report", &config->m_damageReport);
     ImGui::EndChild();
 
     ImGui::SameLine();

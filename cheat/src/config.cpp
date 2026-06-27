@@ -135,7 +135,7 @@ void Config::LoadDefaultConfig() {
     m_espSnaplines = false;
     m_espDistance = false;
     m_espSound = false;
-    m_espTeammates = false;
+    m_espTeammates = true;  // default on — needed for deathmatch (all vs all)
     m_espVisibleColor = ImColor(0, 255, 0, 255);
     m_espHiddenColor = ImColor(255, 0, 0, 255);
     
@@ -188,6 +188,16 @@ void Config::LoadDefaultConfig() {
     m_messageFilter = false;
     m_autoPistol = true;
     m_autoReload = true;
+
+    m_bunnyhop = false;
+    m_noRecoil = false;
+    m_noFlash  = false;
+
+    m_aimbotEnabled   = false;
+    m_aimbotKey       = 0;      // 0 = LMB
+    m_aimbotFov       = 5.f;    // degrees
+    m_aimbotSmooth    = 7.f;    // 1=instant, higher=slower/more legit
+    m_aimbotTeamcheck = false;
 
     m_currentConfig = "default";
 }
