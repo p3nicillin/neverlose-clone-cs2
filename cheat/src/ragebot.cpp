@@ -186,25 +186,16 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
 }
 
 // -----------------------------------------------------------------
-// Visibility check (autowall-aware trace)
+// Visibility check
+// CS2 entity list only contains entities that the server replicates to us.
+// Enemies behind walls are still in the list but vischeck via trace is complex.
+// For now: range gate (5000 units = ~50m, covers most engagement distances).
+// Entities the server culled entirely won't appear in the list at all.
 // -----------------------------------------------------------------
-bool Ragebot::IsVisible(uintptr_t localPawn, uintptr_t targetPawn,
+bool Ragebot::IsVisible(uintptr_t /*localPawn*/, uintptr_t /*targetPawn*/,
                         const Vector3& eyePos, const Vector3& targetPos) {
-    // Fast distance pre-check (skip trace for very close targets)
     float dist = GetDistance(eyePos, targetPos);
-    if (dist < 10.f) return true;
-
-    // Use NoSpread trace if available (CreateFilter + TraceShape)
-    if (NoSpread::IsReady()) {
-        // CheckSpreadHit with maxTicks=1 and hitbox=-1 (any hitbox) acts as a
-        // basic visibility trace with the entity as the target
-        int tick = 0;
-        return NoSpread::CheckSpreadHit(localPawn, targetPawn, Vector3(0,0,0), -1, 0, 1, &tick);
-    }
-
-    // Fallback: simple distance gate — only target enemies within 3500 units
-    // (eliminates targets across the entire map through walls)
-    return dist < 3500.f;
+    return dist > 0.f && dist < 5000.f;
 }
 
 // -----------------------------------------------------------------
@@ -392,19 +383,29 @@ void Ragebot::Run(CUserCmd* /*cmd*/) {
     if (target.baim) dmg *= 0.5f;
     if (dmg < cfg->m_ragebotMinDamage) { if (m_firing){ForceFire(false);m_firing=false;} return; }
 
-    // Quick-scope
-    if (cfg->m_ragebotQuickScope && IsSniper(entityList, localPawn)) {
-        bool scoped = CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1428));
+    bool isSniper = IsSniper(entityList, localPawn);
+
+    // Auto-scope: snipers need to be scoped before firing.
+    // m_bIsScoped is a bool on the pawn (confirmed offset from cs2-dumper).
+    if (isSniper) {
+        uintptr_t scopedOff = Offsets::Get("m_bIsScoped", 0x1C50);
+        bool scoped = CS2::Read<bool>(localPawn + scopedOff);
         if (!scoped) {
-            // Right-click to scope
-            INPUT inp = {}; inp.type=INPUT_MOUSE; inp.mi.dwFlags=MOUSEEVENTF_RIGHTDOWN;
-            SendInput(1,&inp,sizeof(INPUT)); inp.mi.dwFlags=MOUSEEVENTF_RIGHTUP;
-            SendInput(1,&inp,sizeof(INPUT));
-            return;
+            // Hold right-click to scope (keep pressing until scoped)
+            static DWORD scopeTime = 0;
+            DWORD now = GetTickCount();
+            if (now - scopeTime > 50) {  // send every 50ms
+                INPUT inp = {}; inp.type = INPUT_MOUSE;
+                inp.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
+                SendInput(1, &inp, sizeof(INPUT));
+                scopeTime = now;
+            }
+            CreateMoveHook::SetRagebotAim(aimAng);  // keep aim set while scoping
+            return;  // don't fire until scoped
         }
     }
 
-    // Fire via SendInput (confirmed working in triggerbot)
+    // Fire via SendInput (same as working triggerbot)
     if (!m_firing) { ForceFire(true); m_firing = true; }
     m_lastTarget = target.pawn;
     m_lastTime   = GetTickCount();

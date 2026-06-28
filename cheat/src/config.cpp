@@ -73,9 +73,9 @@ void Config::LoadDefaultConfig() {
     m_ragebotEnabled = true;
     m_ragebotFOV = 180.0f;
     m_ragebotSmooth = 0.5f;
-    m_ragebotHitchance = 80.0f;
-    m_ragebotMinDamage = 50.0f;
-    m_ragebotAutoFire = false;
+    m_ragebotHitchance = 50.0f;
+    m_ragebotMinDamage = 20.0f;
+    m_ragebotAutoFire = true;
     m_ragebotAutoStop = true;
     m_ragebotExtrapolation = true;
     m_ragebotBacktrack = true;
