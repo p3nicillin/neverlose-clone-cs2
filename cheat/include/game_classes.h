@@ -72,17 +72,19 @@ inline uintptr_t GetActiveWeapon(uintptr_t listBase, uintptr_t pawn) {
 }
 
 // Skeleton/bone helpers
-// pawn → m_pGameSceneNode(0x330) → m_modelState(0x150) → bone array
+// pawn → m_pGameSceneNode(0x328) → m_modelState(+0x160) → bone array ptr (+0x80)
+// Bone stride: 32 bytes each (Vector3 position + 20 bytes padding/quat)
 inline uintptr_t GetBoneArray(uintptr_t pawn) {
-    uintptr_t node = Read<uintptr_t>(pawn + 0x330);
+    // Use same offset as GetAbsOrigin for consistency
+    uintptr_t node = Read<uintptr_t>(pawn + Offsets::Get("m_pGameSceneNode", 0x328));
     if (!node) return 0;
-    // m_modelState at +0x150, bone array within modelState at +0x80
-    uintptr_t modelState = node + 0x150;
+    // m_modelState offset: 0x160 (confirmed from cs2-dumper CGameSceneNode layout)
+    uintptr_t modelState = node + 0x160;
     return Read<uintptr_t>(modelState + 0x80);
 }
 inline Vector3 GetBonePos(uintptr_t boneArr, int boneIdx) {
-    // Each bone entry = 32 bytes (3x4 matrix + padding)
-    return Read<Vector3>(boneArr + boneIdx * 32);
+    // Each CTransform entry is 32 bytes; position is at bytes 0..11
+    return Read<Vector3>(boneArr + (uintptr_t)boneIdx * 32);
 }
 
 inline Matrix4x4 GetViewMatrix() {

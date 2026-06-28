@@ -228,9 +228,9 @@ void Visuals::Render() {
             float cw = w * 0.25f;
             float ch = h * 0.2f;
             ImU32 outline = IM_COL32(0,0,0,180);
-            // Outer/inner shadow outlines — use AddRect with rounding=0 only
-            dl->AddRect(ImVec2(x0-1.f,y0-1.f), ImVec2(x1+1.f,y1+1.f), outline, 0.f);
-            dl->AddRect(ImVec2(x0+1.f,y0+1.f), ImVec2(x1-1.f,y1-1.f), outline, 0.f);
+            // Outer/inner shadow outlines
+            dl->AddRect(ImVec2(x0-1.f,y0-1.f), ImVec2(x1+1.f,y1+1.f), outline, 0.f, 1.f);
+            dl->AddRect(ImVec2(x0+1.f,y0+1.f), ImVec2(x1-1.f,y1-1.f), outline, 0.f, 1.f);
             // Corner lines
             auto corners = [&](float bx, float by, float ddx, float ddy){
                 dl->AddLine(ImVec2(bx,by), ImVec2(bx+ddx*cw,by),    col32, 1.5f);

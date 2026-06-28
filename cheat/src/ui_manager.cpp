@@ -202,40 +202,38 @@ void UIManager::RenderESP() {
                 dl->AddText(ImVec2(x1, y1-14.f), IM_COL32(255,255,255,230), name.c_str());
         }
 
-        // Skeleton ESP — dynamic: find all valid bones, auto-connect nearby ones
+        // Skeleton ESP — use hardcoded CS2 bone hierarchy for reliable results
         if (cfg->m_espSkeleton) {
             uintptr_t boneArr = CS2::GetBoneArray(pawn);
             if (boneArr) {
-                // Collect valid bone positions (within player bounding box)
-                struct BonePt { Vector3 w; Vector2 s; bool onScreen; };
-                std::vector<BonePt> pts;
+                // CS2 standard player model bone pairs (parent → child)
+                static const std::pair<int,int> kLinks[] = {
+                    {0,1},{1,2},{2,3},{3,4},{4,5},  // spine: pelvis→head
+                    {3,6},{6,7},{7,8},{8,9},          // L arm
+                    {3,10},{10,11},{11,12},{12,13},   // R arm
+                    {0,14},{14,15},{15,16},            // L leg
+                    {0,18},{18,19},{19,20},            // R leg
+                };
+                static const int kMaxB = 21;
 
-                for (int b = 0; b < 128; b++) {
-                    Vector3 bp = CS2::GetBonePos(boneArr, b);
-                    // Filter: must be within player extent (~60 radius, -10 to 90 vertical)
-                    float dx = bp.x - origin.x, dy = bp.y - origin.y, dz = bp.z - origin.z;
-                    if (bp.x==0&&bp.y==0&&bp.z==0) continue;
-                    if (fabsf(dx)>60||fabsf(dy)>60||dz<-20||dz>100) continue;
-                    Vector2 sp;
-                    bool vis = Utils::WorldToScreen(bp, sp, vm, sw, sh);
-                    pts.push_back({bp, sp, vis});
+                // Read bone world positions once
+                Vector3 bw[kMaxB+1];
+                Vector2 bs[kMaxB+1];
+                bool    bv[kMaxB+1];
+                for (int b = 0; b <= kMaxB; ++b) {
+                    bw[b] = CS2::GetBonePos(boneArr, b);
+                    // Validity: bone must be close to the entity origin
+                    float dx=bw[b].x-origin.x, dy=bw[b].y-origin.y, dz=bw[b].z-origin.z;
+                    bool valid = (fabsf(dx)<80 && fabsf(dy)<80 && dz>-20 && dz<110);
+                    bv[b] = valid && Utils::WorldToScreen(bw[b], bs[b], vm, sw, sh);
                 }
 
-                // Connect bones that are within 35 units of each other in 3D
-                // This creates a natural skeleton without needing exact indices
-                for (size_t i = 0; i < pts.size(); i++) {
-                    for (size_t j = i+1; j < pts.size(); j++) {
-                        if (!pts[i].onScreen || !pts[j].onScreen) continue;
-                        float dx = pts[i].w.x-pts[j].w.x;
-                        float dy = pts[i].w.y-pts[j].w.y;
-                        float dz = pts[i].w.z-pts[j].w.z;
-                        float d = sqrtf(dx*dx+dy*dy+dz*dz);
-                        if (d > 0.5f && d < 32.f) {
-                            dl->AddLine(ImVec2(pts[i].s.x,pts[i].s.y),
-                                        ImVec2(pts[j].s.x,pts[j].s.y),
-                                        col, 1.2f);
-                        }
-                    }
+                ImU32 skCol = IM_COL32(0, 255, 100, 200);
+                for (auto& lk : kLinks) {
+                    if (!bv[lk.first] || !bv[lk.second]) continue;
+                    dl->AddLine(ImVec2(bs[lk.first].x, bs[lk.first].y),
+                                ImVec2(bs[lk.second].x,bs[lk.second].y),
+                                skCol, 1.2f);
                 }
             }
         }
