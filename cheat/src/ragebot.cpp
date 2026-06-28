@@ -392,41 +392,43 @@ void Ragebot::Run(CUserCmd* /*cmd*/) {
     // Compute aim angle
     Vector3 aimAng = CalcAngle(eyePos, target.aimPoint);
 
-    // Pass aim angle to CreateMove hook (silent aim — screen doesn't move)
-    CreateMoveHook::SetRagebotAim(aimAng);
-
     // Hitchance + min-damage gate
     float hc = EstimateHitchance(0.f, distance, moving);
-    if (hc < cfg->m_ragebotHitchance) { if (m_firing){ForceFire(false);m_firing=false;} return; }
+    if (hc < cfg->m_ragebotHitchance) {
+        CreateMoveHook::SetRagebotAim(aimAng, false);  // keep aim, don't fire
+        if (m_firing) { ForceFire(false); m_firing = false; }
+        return;
+    }
     int   targetArmor = CS2::Read<int>(target.pawn + Offsets::Get("m_ArmorValue", 0xEB0));
     float dmg = EstimateDamage(distance, targetArmor);
     if (target.baim) dmg *= 0.5f;
-    if (dmg < cfg->m_ragebotMinDamage) { if (m_firing){ForceFire(false);m_firing=false;} return; }
+    if (dmg < cfg->m_ragebotMinDamage) {
+        CreateMoveHook::SetRagebotAim(aimAng, false);
+        if (m_firing) { ForceFire(false); m_firing = false; }
+        return;
+    }
 
-    bool isSniper = IsSniper(entityList, localPawn);
-
-    // Auto-scope: snipers need to be scoped before firing.
-    // m_bIsScoped is a bool on the pawn (confirmed offset from cs2-dumper).
-    if (isSniper) {
-        uintptr_t scopedOff = Offsets::Get("m_bIsScoped", 0x1C50);
-        bool scoped = CS2::Read<bool>(localPawn + scopedOff);
+    // Auto-scope: if quick-scope enabled and NOT scoped, right-click to scope first.
+    // Does NOT use IsSniper check — right-clicking a non-scopeable weapon is harmless.
+    if (cfg->m_ragebotQuickScope) {
+        bool scoped = CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1C50));
         if (!scoped) {
-            // Hold right-click to scope (keep pressing until scoped)
             static DWORD scopeTime = 0;
             DWORD now = GetTickCount();
-            if (now - scopeTime > 50) {  // send every 50ms
+            if (now - scopeTime > 50) {
                 INPUT inp = {}; inp.type = INPUT_MOUSE;
                 inp.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN;
                 SendInput(1, &inp, sizeof(INPUT));
                 scopeTime = now;
             }
-            CreateMoveHook::SetRagebotAim(aimAng);  // keep aim set while scoping
-            return;  // don't fire until scoped
+            CreateMoveHook::SetRagebotAim(aimAng, false);  // aim but don't fire yet
+            return;
         }
     }
 
-    // Fire via SendInput (same as working triggerbot)
-    if (!m_firing) { ForceFire(true); m_firing = true; }
+    // Tell CreateMove hook to fire this tick (dwForceAttack at exactly the right time)
+    CreateMoveHook::SetRagebotAim(aimAng, cfg->m_ragebotAutoFire);
+    m_firing     = cfg->m_ragebotAutoFire;
     m_lastTarget = target.pawn;
     m_lastTime   = GetTickCount();
 }

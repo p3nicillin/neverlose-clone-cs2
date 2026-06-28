@@ -223,13 +223,18 @@ static volatile bool g_cmConfirmed = false;
 // Shared state written by CheatThread, read by game thread (CreateMove).
 // Simple volatile structs — worst case is one frame of lag, no mutex needed.
 static volatile bool g_rbHasTarget  = false;
-static Vector3       g_rbAimAngle   = {};   // ragebot wants to aim here
+static volatile bool g_rbWantFire   = false;  // ragebot wants to fire this tick
+static Vector3       g_rbAimAngle   = {};
 
 static volatile bool g_aaActive     = false;
-static Vector3       g_aaFakeAngle  = {};   // anti-aim fake angle
+static Vector3       g_aaFakeAngle  = {};
 
-void CreateMoveHook::SetRagebotAim(const Vector3& angle) { g_rbAimAngle = angle; g_rbHasTarget = true; }
-void CreateMoveHook::ClearRagebotAim()                   { g_rbHasTarget = false; }
+void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire) {
+    g_rbAimAngle  = angle;
+    g_rbHasTarget = true;
+    g_rbWantFire  = fire;
+}
+void CreateMoveHook::ClearRagebotAim()                   { g_rbHasTarget = false; g_rbWantFire = false; }
 void CreateMoveHook::SetAntiAim(const Vector3& angle)    { g_aaFakeAngle = angle; g_aaActive = true; }
 void CreateMoveHook::ClearAntiAim()                      { g_aaActive = false; }
 
@@ -279,11 +284,18 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             sendAngles = g_aaFakeAngle;
 
         // 2. Ragebot silent aim: override with aim angle when shooting.
-        //    Anti-aim is suppressed for the shot tick (player exposes real aim
-        //    to server only for that tick — standard HvH behaviour).
         bool lmbHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-        if (g_rbHasTarget && (cfg->m_ragebotAutoFire || lmbHeld))
-            sendAngles = g_rbAimAngle;
+        bool rbFire  = g_rbHasTarget && (g_rbWantFire || (cfg->m_ragebotAutoFire && g_rbHasTarget));
+        if (g_rbHasTarget)
+            sendAngles = g_rbAimAngle;  // always apply aim, fire check below
+
+        // Fire via dwForceAttack inside CreateMove (same tick as the aim angle).
+        // This is more reliable than SendInput because it's synchronised with the
+        // game tick that processes the user cmd.
+        if (rbFire || lmbHeld) {
+            uintptr_t fa = Offsets::Get("dwForceAttack");
+            if (fa) { int v = 65537; Memory::Write(fa, &v, sizeof(v)); }
+        }
 
         // 3. Recoil compensation: subtract accumulated punch so bullet goes straight
         if (cfg->m_noRecoil) {
@@ -327,6 +339,13 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         }
 
         if (cfg->m_bunnyhop) DoBhop(lp, nullptr);
+
+        // Release dwForceAttack if ragebot no longer wants to fire
+        if (!g_rbWantFire && !g_rbHasTarget) {
+            uintptr_t fa = Offsets::Get("dwForceAttack");
+            if (fa) { int v = 256; Memory::Write(fa, &v, sizeof(v)); }
+        }
+        g_rbWantFire = false;  // clear per-tick fire flag
     }
 }
 

@@ -97,12 +97,12 @@ void Misc::Update() {
         uintptr_t obsSvc = CS2::Read<uintptr_t>(localPawn + 0x11F8); // m_pObserverServices
         if (obsSvc && obsSvc > 0x1000) {
             if (wantTP) {
-                int   mode = 1;
+                int   mode = 5;  // OBS_MODE_CHASE = 5 (third-person chase cam)
                 float dist = cfg->m_thirdPersonDist > 0 ? cfg->m_thirdPersonDist : 120.f;
                 Memory::Write(obsSvc + 0x48, &mode, sizeof(mode));
                 Memory::Write(obsSvc + 0x58, &dist, sizeof(dist));
             } else if (s_prevTP) {
-                int   mode = 0;
+                int   mode = 0;  // OBS_MODE_NONE = first person
                 float dist = 0.f;
                 Memory::Write(obsSvc + 0x48, &mode, sizeof(mode));
                 Memory::Write(obsSvc + 0x58, &dist, sizeof(dist));
