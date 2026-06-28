@@ -87,29 +87,9 @@ void Misc::Update() {
     }
 
     // ---- Third person ----
-    // Confirmed CS2 offsets from cs2-dumper:
-    //   m_pObserverServices = 0x11F8 on CCSPlayerPawn
-    //   m_iObserverMode     = 0x48   within CPlayer_ObserverServices  (OBS_MODE_CHASE=1)
-    //   m_flObserverChaseDistance = 0x58 within CPlayer_ObserverServices
-    {
-        static bool s_prevTP = false;
-        bool wantTP = cfg->m_thirdPerson;
-        uintptr_t obsSvc = CS2::Read<uintptr_t>(localPawn + 0x11F8); // m_pObserverServices
-        if (obsSvc && obsSvc > 0x1000) {
-            if (wantTP) {
-                int   mode = 5;  // OBS_MODE_CHASE = 5 (third-person chase cam)
-                float dist = cfg->m_thirdPersonDist > 0 ? cfg->m_thirdPersonDist : 120.f;
-                Memory::Write(obsSvc + 0x48, &mode, sizeof(mode));
-                Memory::Write(obsSvc + 0x58, &dist, sizeof(dist));
-            } else if (s_prevTP) {
-                int   mode = 0;  // OBS_MODE_NONE = first person
-                float dist = 0.f;
-                Memory::Write(obsSvc + 0x48, &mode, sizeof(mode));
-                Memory::Write(obsSvc + 0x58, &dist, sizeof(dist));
-            }
-        }
-        s_prevTP = wantTP;
-    }
+    // Third-person is now handled inside the CreateMove hook via
+    // CCSGOInput + 0x0A51 = bInThirdPerson (Axion-confirmed CS2 approach).
+    // The observer services approach does NOT work in CS2 for live play.
 
     // ---- Scope overlay removal ----
     // Remove the black scope rings so snipers can see clearly without scope overlay.

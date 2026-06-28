@@ -26,9 +26,10 @@ static bool g_Initialized = false;
 // ---------------------------------------------------------------------------
 static const struct { const char* name; uintptr_t rva; } k_ClientRVAs[] = {
     { "dwLocalPlayerController",  0x18808C8 },
-    { "dwLocalPlayerPawn",        0x1880930 },  // direct pawn ptr (for no recoil)
+    { "dwLocalPlayerPawn",        0x1880930 },
     { "dwEntityList",             0x18B41D8 },
     { "dwViewMatrix",             0x1927520 },
+    { "dwViewAngles",             0x1921EB0 }, // CCSGOInput::angViewAngles (cs2-dumper)
     { "dwForceAttack",            0x172A3C8 },
     { "dwForceJump",              0x172A420 },
     { "dwForceDuck",              0x172A418 },
@@ -52,7 +53,7 @@ static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
     // pawn + m_pAimPunchServices → CAimPunchServices ptr → + m_vecCsViewPunchAngle
     { "m_pAimPunchServices",    0x1490 },  // ptr on CCSPlayerPawn (5264)
     { "m_vecCsViewPunchAngle",  0x48   },  // Vector3 within CAimPunchServices (72)
-    { "m_bIsScoped",            0x1428 },
+    { "m_bIsScoped",            0x1C50 }, // confirmed from cs2-dumper CCSPlayerPawn
     { "m_flFlashDuration",      0x121C },
     { "m_iAccount",             0xDC4  },
     { "m_ArmorValue",           0xEB0  },

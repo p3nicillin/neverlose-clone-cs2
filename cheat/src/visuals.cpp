@@ -1,5 +1,18 @@
 // =================================================================
-// visuals.cpp - Visuals/ESP implementation
+// visuals.cpp - CS2 ESP / Visuals
+//
+// Uses the correct CS2 entity system:
+//   Entity list: chunk-based, CS2::GetEntityByIndex
+//   Pawn from controller: CS2::GetPawn
+//   Bone positions: CS2::GetBoneArray / CS2::GetBonePos (stride 32)
+//   World-to-screen: CS2::W2S
+//
+// CS2 player model bone hierarchy (T/CT standard model):
+//   Spine chain:  0→1→2→3→4→5  (pelvis→spine1→spine2→spine3→neck→head)
+//   Left arm:  3→6→7→8→9     (spine3→clavicle_L→upper_L→lower_L→hand_L)
+//   Right arm: 3→10→11→12→13 (spine3→clavicle_R→upper_R→lower_R→hand_R)
+//   Left leg:  0→14→15→16    (pelvis→hip_L→knee_L→ankle_L)
+//   Right leg: 0→18→19→20    (pelvis→hip_R→knee_R→ankle_R)
 // =================================================================
 
 #include "visuals.h"
@@ -8,492 +21,379 @@
 #include "logger.h"
 #include "config.h"
 #include "ui_manager.h"
+#include "game_classes.h"
+#include "cheat_core.h"
 #include <imgui.h>
+#include <imgui_internal.h>
+#include <cmath>
+#include <vector>
+#include <string>
+#include <algorithm>
 
-// Global visuals instance
 Visuals* g_Visuals = nullptr;
 
-// -----------------------------------------------------------------
-// Constructor
-// -----------------------------------------------------------------
+// ---- CS2 bone connections (parent → child pairs) ----
+static const std::pair<int,int> kBoneLinks[] = {
+    // Spine
+    {0,1},{1,2},{2,3},{3,4},{4,5},
+    // Left arm
+    {3,6},{6,7},{7,8},{8,9},
+    // Right arm
+    {3,10},{10,11},{11,12},{12,13},
+    // Left leg
+    {0,14},{14,15},{15,16},
+    // Right leg
+    {0,18},{18,19},{19,20},
+};
+static const int kNumBoneLinks = (int)(sizeof(kBoneLinks)/sizeof(kBoneLinks[0]));
+// Highest bone index we use: must read at least 21 bones
+static const int kMaxBone = 21;
+
 Visuals::Visuals()
-    : m_enabled(false)
-    , m_espEnabled(false)
-    , m_espBox(false)
-    , m_espHealthBar(false)
-    , m_espArmorBar(false)
-    , m_espName(false)
-    , m_espWeapon(false)
-    , m_espFlags(false)
-    , m_espSkeleton(false)
-    , m_espSnaplines(false)
-    , m_espDistance(false)
-    , m_espSound(false)
+    : m_enabled(false), m_espEnabled(false), m_espBox(false)
+    , m_espHealthBar(false), m_espArmorBar(false), m_espName(false)
+    , m_espWeapon(false), m_espFlags(false), m_espSkeleton(false)
+    , m_espSnaplines(false), m_espDistance(false), m_espSound(false)
     , m_espTeammates(false)
-    , m_espVisibleColor(0, 255, 0, 255)
-    , m_espHiddenColor(255, 0, 0, 255)
-    , m_chamsEnabled(false)
-    , m_chamsVisible(false)
-    , m_chamsVisibleColor(0, 255, 0, 200)
-    , m_chamsHidden(false)
-    , m_chamsHiddenColor(255, 0, 0, 200)
-    , m_chamsWeapon(false)
-    , m_chamsWeaponColor(0, 150, 255, 200)
-    , m_chamsVisibleMode(0)
-    , m_chamsHiddenMode(1)
-    , m_glowEnabled(false)
-    , m_glowColor(0, 128, 255, 255)
-    , m_glowAlpha(0.5f)
-    , m_glowHidden(false)
-    , m_hitMarker(false)
-    , m_hitMarkerTime(0.5f)
-    , m_grenadePrediction(false)
-    , m_bombTimer(false)
-    , m_defuseTimer(false)
-    , m_damageIndicator(false)
-    , m_radar(false)
-    , m_spectatorList(false)
-    , m_killFeed(false)
-    , m_hitSound(false)
-    , m_headshotSound(false)
-    , m_soundVolume(50.0f)
-{
+    , m_espVisibleColor(0,255,0,255), m_espHiddenColor(255,100,100,255)
+    , m_chamsEnabled(false), m_chamsVisible(false)
+    , m_chamsVisibleColor(0,255,0,200), m_chamsHidden(false)
+    , m_chamsHiddenColor(255,0,0,200), m_chamsWeapon(false)
+    , m_chamsWeaponColor(0,150,255,200), m_chamsVisibleMode(0), m_chamsHiddenMode(1)
+    , m_glowEnabled(false), m_glowColor(0,128,255,255), m_glowAlpha(0.5f), m_glowHidden(false)
+    , m_hitMarker(false), m_hitMarkerTime(0.5f)
+    , m_grenadePrediction(false), m_bombTimer(false), m_defuseTimer(false)
+    , m_damageIndicator(false), m_radar(false), m_spectatorList(false)
+    , m_killFeed(false), m_hitSound(false), m_headshotSound(false), m_soundVolume(50.f)
+{}
+
+// ---- helpers ----
+static ImU32 ToImU32(ImColor c) { return ImGui::ColorConvertFloat4ToU32(c); }
+
+static std::string GetWeaponNameByID(int id) {
+    switch(id) {
+        case 1:  return "Deagle";    case 2:  return "Dualies";
+        case 3:  return "Five-7";    case 4:  return "Glock";
+        case 7:  return "P250";      case 9:  return "CZ75";
+        case 10: return "R8";        case 11: return "AWP";
+        case 12: return "SSG08";     case 13: return "SCAR-20";
+        case 14: return "G3SG1";     case 16: return "AK-47";
+        case 17: return "M4A4";      case 60: return "M4A1-S";
+        case 19: return "FAMAS";     case 18: return "Galil";
+        case 23: return "SG553";     case 24: return "AUG";
+        case 25: return "M249";      case 28: return "Negev";
+        case 29: return "Mag-7";     case 31: return "Nova";
+        case 35: return "XM1014";    case 34: return "Sawed-Off";
+        case 32: return "MP9";       case 33: return "MP7";
+        case 26: return "UMP-45";    case 30: return "P90";
+        case 36: return "Flashbang"; case 37: return "Smoke";
+        case 38: return "HE";        case 39: return "Molotov";
+        case 40: return "Incendiary";case 42: return "C4";
+        default: return "";
+    }
 }
 
-// -----------------------------------------------------------------
-// Main render function
-// -----------------------------------------------------------------
+// ---- per-player struct ----
+struct PlayerInfo {
+    uintptr_t pawn;
+    uintptr_t ctrl;
+    int  hp;
+    int  armor;
+    int  team;
+    bool isEnemy;
+    bool scoped;
+    Vector3 origin;   // abs world origin (feet)
+    Vector3 head;     // head bone world pos
+    Vector2 scrFeet;
+    Vector2 scrHead;
+    Vector2 scrTop;   // slightly above head for box
+    float   height;   // screen height
+    float   width;    // screen box width
+    std::string name;
+    std::string weapon;
+    Vector3 bones[kMaxBone+1]; // world positions of bones 0..kMaxBone
+    bool bonesValid;
+};
+
 void Visuals::Render() {
-    if (!m_enabled) {
-        return;
-    }
+    Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
+    if (!cfg || !cfg->m_visualsEnabled) return;
+    if (!cfg->m_espEnabled) return;
 
-    // ESP
-    if (m_espEnabled) {
-        RenderESP();
-    }
+    uintptr_t lcAddr   = Offsets::Get("dwLocalPlayerController");
+    uintptr_t lpAddr   = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    if (!lcAddr || !lpAddr || !listAddr) return;
 
-    // Chams
-    if (m_chamsEnabled) {
-        RenderChams();
-    }
+    uintptr_t localCtrl = CS2::Read<uintptr_t>(lcAddr);
+    uintptr_t localPawn = CS2::Read<uintptr_t>(lpAddr);
+    uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
+    if (!localCtrl || !localPawn || !entityList) return;
 
-    // Glow
-    if (m_glowEnabled) {
-        RenderGlow();
-    }
+    int localTeam = CS2::GetTeam(localCtrl);
+    Vector3 localOrigin = CS2::GetAbsOrigin(localPawn);
 
-    // Hit markers
-    if (m_hitMarker) {
-        RenderHitMarkers();
-    }
+    Matrix4x4 vm = CS2::GetViewMatrix();
 
-    // Grenade prediction
-    if (m_grenadePrediction) {
-        RenderGrenadePrediction();
-    }
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
-    // Bomb timer
-    if (m_bombTimer) {
-        RenderBombTimer();
-    }
+    // ---- Enumerate all player controllers (indices 1..64) ----
+    for (int i = 1; i <= 64; ++i) {
+        uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
+        if (!ctrl || ctrl == localCtrl) continue;
 
-    // Defuse timer
-    if (m_defuseTimer) {
-        RenderDefuseTimer();
-    }
+        uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
+        if (!pawn || pawn == localPawn) continue;
 
-    // Damage indicator
-    if (m_damageIndicator) {
-        RenderDamageIndicator();
-    }
+        int hp = CS2::GetHealth(pawn);
+        if (hp <= 0 || hp > 100) continue;
+        if (CS2::GetLife(pawn) != 0) continue; // alive = 0
 
-    // Radar
-    if (m_radar) {
-        RenderRadar();
-    }
-
-    // Spectator list
-    if (m_spectatorList) {
-        RenderSpectatorList();
-    }
-
-    // Kill feed
-    if (m_killFeed) {
-        RenderKillFeed();
-    }
-}
-
-// -----------------------------------------------------------------
-// Render ESP
-// -----------------------------------------------------------------
-void Visuals::RenderESP() {
-    // Get all players
-    uintptr_t localPlayer = Memory::Read<uintptr_t>(Offsets::Get("dwLocalPlayer"));
-    if (!localPlayer) return;
-
-    int localTeam = Memory::Read<int>(localPlayer + Offsets::Get("m_iTeamNum"));
-    int localHealth = Memory::Read<int>(localPlayer + Offsets::Get("m_iHealth"));
-
-    // Get entity list
-    uintptr_t entityList = Memory::Read<uintptr_t>(Offsets::Get("dwEntityList"));
-    if (!entityList) return;
-
-    // Get view matrix for world to screen
-    Matrix4x4 viewMatrix = Memory::Read<Matrix4x4>(Offsets::Get("dwViewMatrix"));
-
-    // Iterate through players
-    for (int i = 1; i <= 64; i++) {
-        uintptr_t entity = Memory::Read<uintptr_t>(entityList + (i * 0x10));
-        if (!entity) continue;
-
-        // Check if alive
-        int health = Memory::Read<int>(entity + Offsets::Get("m_iHealth"));
-        if (health <= 0) continue;
-
-        // Check if local player
-        if (entity == localPlayer) continue;
-
-        // Check team
-        int team = Memory::Read<int>(entity + Offsets::Get("m_iTeamNum"));
+        int team = CS2::GetTeam(ctrl);
+        if (team != 2 && team != 3) continue;
         bool isEnemy = (team != localTeam);
-        if (!isEnemy && !m_espTeammates) continue;
+        if (!isEnemy && !cfg->m_espTeammates) continue;
 
-        // Get player info
-        Vector3 origin = Memory::Read<Vector3>(entity + Offsets::Get("m_vecOrigin"));
-        Vector3 headPos = origin + Vector3(0, 0, 72.0f); // Approximate head height
+        Vector3 origin = CS2::GetAbsOrigin(pawn);
+        if (origin.x == 0.f && origin.y == 0.f && origin.z == 0.f) continue;
 
-        // World to screen
-        Vector2 screenHead, screenFeet;
-        if (!Utils::WorldToScreen(headPos, screenHead, viewMatrix)) continue;
-        if (!Utils::WorldToScreen(origin, screenFeet, viewMatrix)) continue;
+        // ---- Bone positions ----
+        PlayerInfo pi{};
+        pi.pawn    = pawn;
+        pi.ctrl    = ctrl;
+        pi.hp      = hp;
+        pi.team    = team;
+        pi.isEnemy = isEnemy;
+        pi.origin  = origin;
+        pi.armor   = CS2::Read<int>(pawn + 0xEB0); // m_ArmorValue approx
+        pi.scoped  = CS2::Read<bool>(pawn + 0x1428); // m_bIsScoped fallback
+        pi.bonesValid = false;
 
-        // Calculate box dimensions
-        float height = screenFeet.y - screenHead.y;
-        float width = height * 0.35f;
+        uintptr_t boneArr = CS2::GetBoneArray(pawn);
+        Vector3 headPos = { origin.x, origin.y, origin.z + 72.f }; // fallback
+        if (boneArr) {
+            pi.bonesValid = true;
+            for (int b = 0; b <= kMaxBone; ++b)
+                pi.bones[b] = CS2::GetBonePos(boneArr, b);
+            // Bone 5 = head in standard CS2 model
+            if (pi.bones[5].x != 0.f || pi.bones[5].y != 0.f)
+                headPos = pi.bones[5];
+        }
+        pi.head = headPos;
 
-        // Check visibility
-        bool isVisible = IsVisible(entity, origin);
+        // ---- World to screen ----
+        Vector3 topPos = { headPos.x, headPos.y, headPos.z + 8.f };
+        Vector2 scrFeet, scrHead, scrTop;
+        if (!Utils::WorldToScreen(origin,  scrFeet, vm)) continue;
+        if (!Utils::WorldToScreen(headPos, scrHead, vm)) continue;
+        Utils::WorldToScreen(topPos, scrTop, vm);
 
-        // Determine color
-        ImColor color = isVisible ? m_espVisibleColor : m_espHiddenColor;
+        float h = scrFeet.y - scrTop.y;
+        if (h < 5.f) continue; // offscreen / too small
 
-        // Draw box
-        if (m_espBox) {
-            ImGui::GetBackgroundDrawList()->AddRect(
-                ImVec2(screenHead.x - width / 2, screenHead.y),
-                ImVec2(screenHead.x + width / 2, screenFeet.y),
-                color, 0.0f, 1.5f, 0
-            );
+        float w = h * 0.4f;
+        pi.scrFeet  = scrFeet;
+        pi.scrHead  = scrHead;
+        pi.scrTop   = scrTop;
+        pi.height   = h;
+        pi.width    = w;
+
+        // Names / weapon
+        pi.name   = CS2::GetName(ctrl);
+        if (pi.name.empty()) pi.name = "Player";
+
+        // Weapon from weapon services
+        uintptr_t weapSvc = CS2::Read<uintptr_t>(pawn + 0x11E0);
+        if (weapSvc) {
+            uint32_t wh = CS2::Read<uint32_t>(weapSvc + 0x60);
+            uintptr_t weap = wh ? CS2::HandleToPtr(entityList, wh) : 0;
+            if (weap) {
+                int wid = CS2::Read<int>(weap + 0x300); // m_nSubType / weapon id approx
+                pi.weapon = GetWeaponNameByID(wid);
+            }
         }
 
-        // Health bar
-        if (m_espHealthBar) {
-            float healthPercent = health / 100.0f;
-            ImColor healthColor = healthPercent > 0.5f ? 
-                ImColor(0, 255, 0, 255) : 
-                (healthPercent > 0.25f ? ImColor(255, 255, 0, 255) : ImColor(255, 0, 0, 255));
-            ImGui::GetBackgroundDrawList()->AddRectFilled(
-                ImVec2(screenHead.x - width / 2 - 5, screenFeet.y),
-                ImVec2(screenHead.x - width / 2 - 2, screenFeet.y - healthPercent * height),
-                healthColor
-            );
+        // ---- Colors ----
+        ImColor col   = pi.isEnemy ? cfg->m_espHiddenColor : ImColor(100,200,255,255);
+        ImU32   col32 = ToImU32(col);
+
+        float x0 = scrTop.x - w/2.f;
+        float y0 = scrTop.y;
+        float x1 = scrTop.x + w/2.f;
+        float y1 = scrFeet.y;
+
+        // ---- Box ----
+        if (cfg->m_espBox) {
+            // Corner box style (like neverlose.cc)
+            float cw = w * 0.25f;
+            float ch = h * 0.2f;
+            ImU32 outline = IM_COL32(0,0,0,180);
+            // Outer/inner shadow outlines — use AddRect with rounding=0 only
+            dl->AddRect(ImVec2(x0-1.f,y0-1.f), ImVec2(x1+1.f,y1+1.f), outline, 0.f);
+            dl->AddRect(ImVec2(x0+1.f,y0+1.f), ImVec2(x1-1.f,y1-1.f), outline, 0.f);
+            // Corner lines
+            auto corners = [&](float bx, float by, float ddx, float ddy){
+                dl->AddLine(ImVec2(bx,by), ImVec2(bx+ddx*cw,by),    col32, 1.5f);
+                dl->AddLine(ImVec2(bx,by), ImVec2(bx,by+ddy*ch),    col32, 1.5f);
+            };
+            corners(x0,y0, 1.f, 1.f); corners(x1,y0,-1.f, 1.f);
+            corners(x0,y1, 1.f,-1.f); corners(x1,y1,-1.f,-1.f);
         }
 
-        // Armor bar
-        if (m_espArmorBar) {
-            int armor = Memory::Read<int>(entity + Offsets::Get("m_iArmor"));
-            float armorPercent = armor / 100.0f;
-            ImGui::GetBackgroundDrawList()->AddRectFilled(
-                ImVec2(screenHead.x + width / 2 + 2, screenFeet.y),
-                ImVec2(screenHead.x + width / 2 + 5, screenFeet.y - armorPercent * height),
-                ImColor(100, 200, 255, 255)
-            );
+        // ---- Health bar (left side) ----
+        if (cfg->m_espHealthBar) {
+            float pct   = hp / 100.f;
+            float barH  = h * pct;
+            float bx    = x0 - 5.f;
+            ImU32 hcol  = hp > 60 ? IM_COL32(0,220,0,255) :
+                          hp > 30 ? IM_COL32(220,200,0,255) :
+                                    IM_COL32(220,50,50,255);
+            dl->AddRectFilled(ImVec2(bx-2,y0),        ImVec2(bx,y1),         IM_COL32(0,0,0,160));
+            dl->AddRectFilled(ImVec2(bx-2,y1-barH),   ImVec2(bx,y1),         hcol);
         }
 
-        // Name
-        if (m_espName) {
-            // Get player name from game
-            std::string name = GetPlayerName(entity);
-            ImVec2 textSize = ImGui::CalcTextSize(name.c_str());
-            ImGui::GetBackgroundDrawList()->AddText(
-                ImVec2(screenHead.x - textSize.x / 2, screenHead.y - 20),
-                color, name.c_str()
-            );
+        // ---- Armor bar (right side) ----
+        if (cfg->m_espArmorBar && pi.armor > 0) {
+            float pct   = pi.armor / 100.f;
+            float barH  = h * pct;
+            float bx    = x1 + 3.f;
+            dl->AddRectFilled(ImVec2(bx,y0),        ImVec2(bx+2,y1),       IM_COL32(0,0,0,160));
+            dl->AddRectFilled(ImVec2(bx,y1-barH),   ImVec2(bx+2,y1),       IM_COL32(80,160,255,255));
         }
 
-        // Weapon
-        if (m_espWeapon) {
-            std::string weapon = GetWeaponName(entity);
-            ImVec2 textSize = ImGui::CalcTextSize(weapon.c_str());
-            ImGui::GetBackgroundDrawList()->AddText(
-                ImVec2(screenHead.x - textSize.x / 2, screenFeet.y + 5),
-                color, weapon.c_str()
-            );
+        // ---- Name ----
+        if (cfg->m_espName) {
+            ImVec2 ts = ImGui::CalcTextSize(pi.name.c_str());
+            dl->AddText(ImVec2(scrTop.x - ts.x*0.5f, y0 - ts.y - 2), col32, pi.name.c_str());
         }
 
-        // Distance
-        if (m_espDistance) {
-            float dist = Utils::Distance(origin, Memory::Read<Vector3>(localPlayer + Offsets::Get("m_vecOrigin")));
-            std::string distText = std::to_string((int)dist) + "m";
-            ImVec2 textSize = ImGui::CalcTextSize(distText.c_str());
-            ImGui::GetBackgroundDrawList()->AddText(
-                ImVec2(screenHead.x - textSize.x / 2, screenFeet.y + 25),
-                color, distText.c_str()
-            );
+        // ---- Weapon ----
+        if (cfg->m_espWeapon && !pi.weapon.empty()) {
+            ImVec2 ts = ImGui::CalcTextSize(pi.weapon.c_str());
+            dl->AddText(ImVec2(scrTop.x - ts.x*0.5f, y1 + 2), IM_COL32(220,220,220,255), pi.weapon.c_str());
         }
 
-        // Flags
-        if (m_espFlags) {
-            RenderFlags(entity, screenHead, width, color);
+        // ---- Distance ----
+        if (cfg->m_espDistance) {
+            float dx=origin.x-localOrigin.x, dy=origin.y-localOrigin.y, dz=origin.z-localOrigin.z;
+            int dist = (int)(sqrtf(dx*dx+dy*dy+dz*dz) * 0.0254f); // hammer→meters
+            char buf[16]; sprintf_s(buf, "%dm", dist);
+            ImVec2 ts = ImGui::CalcTextSize(buf);
+            dl->AddText(ImVec2(scrTop.x - ts.x*0.5f, y1 + (cfg->m_espWeapon && !pi.weapon.empty() ? 14.f : 2.f)),
+                        IM_COL32(200,200,200,200), buf);
         }
 
-        // Skeleton
-        if (m_espSkeleton) {
-            RenderSkeleton(entity, viewMatrix, color);
+        // ---- Flags ----
+        if (cfg->m_espFlags) {
+            float fy = y0;
+            auto addFlag = [&](const char* txt, ImU32 c){
+                dl->AddText(ImVec2(x1+4.f, fy), c, txt);
+                fy += 13.f;
+            };
+            if (pi.scoped) addFlag("SCOPED", IM_COL32(0,220,255,255));
+            uint32_t flags = CS2::Read<uint32_t>(pawn + 0x3F8);
+            if (!(flags&1)) addFlag("AIR", IM_COL32(255,220,80,255));
+            bool reloading = CS2::Read<bool>(pawn + 0x1468); // rough offset
+            if (reloading) addFlag("RELOAD", IM_COL32(255,140,0,255));
         }
 
-        // Snaplines
-        if (m_espSnaplines) {
-            ImGui::GetBackgroundDrawList()->AddLine(
-                ImVec2(ImGui::GetIO().DisplaySize.x / 2, ImGui::GetIO().DisplaySize.y),
-                ImVec2(screenFeet.x, screenFeet.y),
-                color, 1.0f
-            );
+        // ---- Skeleton ----
+        if (cfg->m_espSkeleton && pi.bonesValid) {
+            ImU32 skCol = IM_COL32(0,255,80,200);
+            for (int b = 0; b < kNumBoneLinks; ++b) {
+                int pa = kBoneLinks[b].first;
+                int ch = kBoneLinks[b].second;
+                if (pa > kMaxBone || ch > kMaxBone) continue;
+                Vector3& wp = pi.bones[pa];
+                Vector3& wc = pi.bones[ch];
+                if ((wp.x == 0.f && wp.y == 0.f) || (wc.x == 0.f && wc.y == 0.f)) continue;
+                Vector2 sp, sc;
+                if (!Utils::WorldToScreen(wp, sp, vm)) continue;
+                if (!Utils::WorldToScreen(wc, sc, vm)) continue;
+                dl->AddLine(ImVec2(sp.x,sp.y), ImVec2(sc.x,sc.y), skCol, 1.f);
+            }
+        }
+
+        // ---- Snaplines ----
+        if (cfg->m_espSnaplines) {
+            float cx = ImGui::GetIO().DisplaySize.x * 0.5f;
+            float cy = ImGui::GetIO().DisplaySize.y;
+            dl->AddLine(ImVec2(cx,cy), ImVec2(scrFeet.x,scrFeet.y), col32, 1.f);
         }
     }
+
+    // ---- Hit markers ----
+    if (cfg->m_hitMarker) RenderHitMarkers();
+
+    // ---- Bomb timer (placeholder) ----
+    if (cfg->m_bombTimer) RenderBombTimer();
+
+    // ---- Spectator list ----
+    if (cfg->m_spectatorList) RenderSpectatorList();
 }
 
-// -----------------------------------------------------------------
-// Render flags
-// -----------------------------------------------------------------
-void Visuals::RenderFlags(uintptr_t entity, const Vector2& screenHead, float width, ImColor color) {
-    int flags = Memory::Read<int>(entity + Offsets::Get("m_fFlags"));
-    bool isScoped = Memory::Read<bool>(entity + Offsets::Get("m_bIsScoped"));
-    bool isReloading = Memory::Read<bool>(entity + Offsets::Get("m_bIsReloading"));
-    float flashAlpha = Memory::Read<float>(entity + Offsets::Get("m_flFlashAlpha"));
+// old Render() entry (no-op; actual work done in the new Render() above)
+void Visuals::RenderESP() {}
+void Visuals::RenderChams() {}
+void Visuals::RenderGlow() {}
+void Visuals::RenderGrenadePrediction() {}
+void Visuals::RenderDefuseTimer() {}
+void Visuals::RenderDamageIndicator() {}
+void Visuals::RenderRadar() {}
+void Visuals::RenderKillFeed() {}
 
-    std::vector<std::string> flagList;
-    if (flags & 1) flagList.push_back("GROUND");
-    else flagList.push_back("AIR");
-    if (flags & 2) flagList.push_back("WATER");
-    if (isScoped) flagList.push_back("SCOPED");
-    if (isReloading) flagList.push_back("RELOAD");
-    if (flashAlpha > 0.5f) flagList.push_back("FLASHED");
+void Visuals::RenderSkeleton(uintptr_t, const Matrix4x4&, ImColor) {}
+void Visuals::RenderFlags(uintptr_t, const Vector2&, float, ImColor) {}
 
-    int yOffset = 0;
-    for (auto& flag : flagList) {
-        ImGui::GetBackgroundDrawList()->AddText(
-            ImVec2(screenHead.x + width / 2 + 10, screenHead.y + yOffset),
-            color, flag.c_str()
-        );
-        yOffset += 15;
-    }
-}
-
-// -----------------------------------------------------------------
-// Render skeleton
-// -----------------------------------------------------------------
-void Visuals::RenderSkeleton(uintptr_t entity, const Matrix4x4& viewMatrix, ImColor color) {
-    // (Implementation requires bone positions)
-    // Placeholder - would need bone offsets and connections
-}
-
-// -----------------------------------------------------------------
-// Render chams
-// -----------------------------------------------------------------
-void Visuals::RenderChams() {
-    // (Implementation requires material system and model rendering)
-    // Placeholder for chams rendering
-}
-
-// -----------------------------------------------------------------
-// Render glow
-// -----------------------------------------------------------------
-void Visuals::RenderGlow() {
-    // (Implementation requires glow object manager)
-    // Placeholder for glow rendering
-}
-
-// -----------------------------------------------------------------
-// Render hit markers
-// -----------------------------------------------------------------
 void Visuals::RenderHitMarkers() {
-    static std::vector<HitMarker> markers;
+    static std::vector<HitMarker> s_markers;
+    // merge pending markers
+    for (auto& m : m_hitMarkers) s_markers.push_back(m);
+    m_hitMarkers.clear();
 
-    for (auto& marker : markers) {
-        float alpha = 1.0f - (GetTickCount() - marker.time) / (m_hitMarkerTime * 1000.0f);
-        if (alpha <= 0) {
-            markers.erase(std::remove(markers.begin(), markers.end(), marker), markers.end());
-            continue;
-        }
+    float cx = ImGui::GetIO().DisplaySize.x * 0.5f;
+    float cy = ImGui::GetIO().DisplaySize.y * 0.5f;
+    float sz = 10.f;
+    DWORD now = GetTickCount();
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
-        ImColor color = marker.headshot ? ImColor(255, 0, 0, (int)(255 * alpha)) : ImColor(255, 255, 255, (int)(255 * alpha));
-        float size = 10.0f;
-        float cx = ImGui::GetIO().DisplaySize.x / 2;
-        float cy = ImGui::GetIO().DisplaySize.y / 2;
-
-        // Draw cross
-        ImGui::GetBackgroundDrawList()->AddLine(
-            ImVec2(cx - size, cy),
-            ImVec2(cx - size / 2, cy),
-            color, 2.0f
-        );
-        ImGui::GetBackgroundDrawList()->AddLine(
-            ImVec2(cx + size / 2, cy),
-            ImVec2(cx + size, cy),
-            color, 2.0f
-        );
-        ImGui::GetBackgroundDrawList()->AddLine(
-            ImVec2(cx, cy - size),
-            ImVec2(cx, cy - size / 2),
-            color, 2.0f
-        );
-        ImGui::GetBackgroundDrawList()->AddLine(
-            ImVec2(cx, cy + size / 2),
-            ImVec2(cx, cy + size),
-            color, 2.0f
-        );
-
-        // Play sound
-        if (m_hitSound) {
-            // Play hit sound
-        }
-        if (marker.headshot && m_headshotSound) {
-            // Play headshot sound
-        }
-    }
+    s_markers.erase(
+        std::remove_if(s_markers.begin(), s_markers.end(), [&](const HitMarker& m){
+            float elapsed = (float)(now - m.time) / 1000.f;
+            float alpha   = 1.f - elapsed / m_hitMarkerTime;
+            if (alpha <= 0.f) return true;
+            ImU32 c = m.headshot ? IM_COL32(255,50,50,(int)(255*alpha))
+                                 : IM_COL32(255,255,255,(int)(255*alpha));
+            dl->AddLine(ImVec2(cx-sz,cy),    ImVec2(cx-sz/2,cy),  c, 2.f);
+            dl->AddLine(ImVec2(cx+sz/2,cy),  ImVec2(cx+sz,cy),    c, 2.f);
+            dl->AddLine(ImVec2(cx,cy-sz),    ImVec2(cx,cy-sz/2),  c, 2.f);
+            dl->AddLine(ImVec2(cx,cy+sz/2),  ImVec2(cx,cy+sz),    c, 2.f);
+            return false;
+        }),
+        s_markers.end()
+    );
 }
 
-// -----------------------------------------------------------------
-// Render grenade prediction
-// -----------------------------------------------------------------
-void Visuals::RenderGrenadePrediction() {
-    // (Implementation requires grenade trajectory simulation)
-    // Placeholder for grenade prediction
-}
-
-// -----------------------------------------------------------------
-// Render bomb timer
-// -----------------------------------------------------------------
 void Visuals::RenderBombTimer() {
-    // (Implementation requires C4 entity detection)
-    // Placeholder for bomb timer
+    // Scan for planted C4 (entity classname check would require schema; skip for now)
 }
 
-// -----------------------------------------------------------------
-// Render defuse timer
-// -----------------------------------------------------------------
-void Visuals::RenderDefuseTimer() {
-    // Placeholder for defuse timer
-}
-
-// -----------------------------------------------------------------
-// Render damage indicator
-// -----------------------------------------------------------------
-void Visuals::RenderDamageIndicator() {
-    // Placeholder for damage indicator
-}
-
-// -----------------------------------------------------------------
-// Render radar
-// -----------------------------------------------------------------
-void Visuals::RenderRadar() {
-    // Placeholder for radar
-}
-
-// -----------------------------------------------------------------
-// Render spectator list
-// -----------------------------------------------------------------
 void Visuals::RenderSpectatorList() {
-    // Placeholder for spectator list
+    // Show which local-team players are spectating us
+    uintptr_t lcAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    uintptr_t ctrlAddr = Offsets::Get("dwLocalPlayerController");
+    if (!lcAddr || !listAddr || !ctrlAddr) return;
+    uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
+    if (!entityList) return;
+    // Simple: listed in the corner. Full impl needs observer target traversal.
 }
 
-// -----------------------------------------------------------------
-// Render kill feed
-// -----------------------------------------------------------------
-void Visuals::RenderKillFeed() {
-    // Placeholder for kill feed
-}
-
-// -----------------------------------------------------------------
-// Add hit marker
-// -----------------------------------------------------------------
 void Visuals::AddHitMarker(bool headshot) {
-    HitMarker marker;
-    marker.time = GetTickCount();
-    marker.headshot = headshot;
-    m_hitMarkers.push_back(marker);
+    HitMarker m; m.time = GetTickCount(); m.headshot = headshot;
+    m_hitMarkers.push_back(m);
 }
 
-// -----------------------------------------------------------------
-// Check if entity is visible
-// -----------------------------------------------------------------
-bool Visuals::IsVisible(uintptr_t entity, const Vector3& origin) {
-    // (Implementation requires visibility check via trace)
-    // Simplified: check if entity is in line of sight
-    return true; // Placeholder
-}
-
-// -----------------------------------------------------------------
-// Get player name
-// -----------------------------------------------------------------
-std::string Visuals::GetPlayerName(uintptr_t entity) {
-    // (Implementation requires name from game)
-    return "Player";
-}
-
-// -----------------------------------------------------------------
-// Get weapon name
-// -----------------------------------------------------------------
-std::string Visuals::GetWeaponName(uintptr_t entity) {
-    uintptr_t weapon = Memory::Read<uintptr_t>(entity + Offsets::Get("m_hActiveWeapon"));
-    if (!weapon) return "None";
-    
-    int weaponID = Memory::Read<int>(weapon + Offsets::Get("m_WeaponID"));
-    
-    // Weapon name mapping (C++98 compatible)
-    if (weaponID == 1) return "Deagle";
-    if (weaponID == 2) return "Dualies";
-    if (weaponID == 3) return "Five-SeveN";
-    if (weaponID == 4) return "Glock";
-    if (weaponID == 5) return "P2000";
-    if (weaponID == 6) return "USP";
-    if (weaponID == 7) return "P250";
-    if (weaponID == 8) return "Tec-9";
-    if (weaponID == 9) return "CZ-75";
-    if (weaponID == 10) return "R8";
-    if (weaponID == 11) return "AWP";
-    if (weaponID == 12) return "SSG08";
-    if (weaponID == 13) return "SCAR-20";
-    if (weaponID == 14) return "G3SG1";
-    if (weaponID == 15) return "AK-47";
-    if (weaponID == 16) return "M4A4";
-    if (weaponID == 17) return "M4A1-S";
-    if (weaponID == 18) return "FAMAS";
-    if (weaponID == 19) return "Galil";
-    if (weaponID == 20) return "SG553";
-    if (weaponID == 21) return "AUG";
-    if (weaponID == 22) return "M249";
-    if (weaponID == 23) return "Negev";
-    if (weaponID == 24) return "Mag-7";
-    if (weaponID == 25) return "Nova";
-    if (weaponID == 26) return "XM1014";
-    if (weaponID == 27) return "Sawed-Off";
-    if (weaponID == 28) return "MP9";
-    if (weaponID == 29) return "MP7";
-    if (weaponID == 30) return "MP5";
-    if (weaponID == 31) return "UMP-45";
-    if (weaponID == 32) return "P90";
-    if (weaponID == 33) return "PP-Bizon";
-    if (weaponID == 34) return "MAC-10";
-    if (weaponID == 36) return "Flashbang";
-    if (weaponID == 37) return "Smoke";
-    if (weaponID == 38) return "HE";
-    if (weaponID == 39) return "Molotov";
-    if (weaponID == 40) return "Incendiary";
-    if (weaponID == 41) return "Decoy";
-    if (weaponID == 42) return "C4";
-    
-    return "Unknown";
-}
+bool Visuals::IsVisible(uintptr_t, const Vector3&) { return true; }
+std::string Visuals::GetPlayerName(uintptr_t ctrl) { return CS2::GetName(ctrl); }
+std::string Visuals::GetWeaponName(uintptr_t) { return ""; }
