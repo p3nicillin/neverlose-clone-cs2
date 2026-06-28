@@ -6,7 +6,7 @@
 
 #include "utils.h"
 
-class CUserCmd;
+struct CUserCmd;
 
 class Legitbot {
 public:

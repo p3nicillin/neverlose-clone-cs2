@@ -1,67 +1,93 @@
 // =================================================================
-// ragebot.h - Ragebot header
+// ragebot.h - Ragebot header (CS2 in-process)
+//
+// The ragebot runs from CheatCore::Update() each tick. Because we
+// cannot reliably obtain the CUserCmd from that context, the ragebot
+// drives aim/fire through the same primitives the working aimbot uses:
+//   - dwViewAngles  (read/write Vector3 view angles)
+//   - dwForceAttack (write to force the +attack button this tick)
+// The CUserCmd* parameter is kept for signature compatibility but may
+// be nullptr.
 // =================================================================
 
 #pragma once
 
-#include "utils.h"
-#include "game_classes.h"
+#include <cstdint>
+#include <windows.h>
+#include "utils.h"          // Vector3
+#include "game_classes.h"   // CS2:: helpers
 
-// CS2 stub types (CS:GO names kept for source compatibility)
+// Legacy CUserCmd kept for signature compatibility (Run is called with nullptr).
 struct CUserCmd { Vector3 viewangles; float forwardmove = 0, sidemove = 0, upmove = 0; int buttons = 0; };
-struct C_BasePlayer { uintptr_t ptr = 0; Vector3 GetVelocity() { return {}; } };
 
 class Ragebot {
 public:
+    // Backtrack record per entity
+    struct TickRecord {
+        Vector3  headPos;    // head bone / head position at this tick
+        Vector3  eyeAngles;  // observed eye angles
+        DWORD    time;       // GetTickCount() when stored
+        bool     valid;
+        TickRecord() : time(0), valid(false) {}
+    };
+
+    // Per-entity tracking state (resolver + backtrack)
+    struct EntityState {
+        static const int kBTRecords = 12;
+        TickRecord records[kBTRecords];
+        int        head;            // ring buffer write index
+        float      lastYaw[2];      // resolver: last 2 distinct observed yaws
+        int        resolverFlip;    // which of the 2 to try
+        EntityState() : head(0), resolverFlip(0) {
+            lastYaw[0] = lastYaw[1] = 0.f;
+        }
+    };
+
     struct Target {
-        C_BasePlayer* player;
-        Vector3 aimPoint;
-        float hitchance;
-        float damage;
-        float fov;
-        int hitbox;
-        bool isVisible;
+        uintptr_t pawn;
+        uintptr_t controller;
+        int       index;
+        Vector3   aimPoint;
+        float     fov;
+        bool      valid;
+        bool      baim;       // true if aiming body (head blocked / out of range)
+        Target() : pawn(0), controller(0), index(0), fov(0), valid(false), baim(false) {}
     };
 
     Ragebot();
 
+    // Called every tick from CheatCore::Update(); cmd may be nullptr.
     void Run(CUserCmd* cmd);
-    Target SelectTarget();
-    float CalculateHitchance(C_BasePlayer* player, const Vector3& point);
-    float CalculateDamage(C_BasePlayer* player, const Vector3& point);
-    Vector3 CalculateAngle(const Vector3& src, const Vector3& dst);
-    Vector3 SmoothAngle(const Vector3& current, const Vector3& target, float smooth);
-    float GetFOV(const Vector3& point);
-    Vector3 GetBacktrackPosition(C_BasePlayer* player, float time);
-    float GetLatency();
-    bool IsVisible(const Vector3& point);
-    bool TraceBullet(C_BasePlayer* player, const Vector3& src, const Vector3& dst);
-    bool IsSniper();
-    Vector3 GetSpread(C_BasePlayer* weapon, int seed);
-    float GetDistance(const Vector3& a, const Vector3& b);
-    void DrawAimLine(const Vector3& src, const Vector3& dst);
-    C_BasePlayer* GetLocalPlayer();
-    Vector3 GetLocalEyePos();
-    Vector3 GetCurrentViewAngles();
-
-    // Settings
-    bool m_enabled;
-    float m_fov;
-    float m_smooth;
-    float m_hitchance;
-    float m_minDamage;
-    bool m_autoFire;
-    bool m_autoStop;
-    bool m_extrapolation;
-    bool m_backtrack;
-    float m_backtrackTime;
-    bool m_quickScope;
-    bool m_visualAimbot;
-    bool m_legMovement;
 
 private:
-    C_BasePlayer* m_lastTarget;
-    int m_lastHitbox;
-    DWORD m_lastTime;
-};
+    // Core pipeline
+    Target SelectTarget(uintptr_t entityList, uintptr_t localCtrl, uintptr_t localPawn,
+                        const Vector3& eyePos, const Vector3& viewAng, int myTeam);
+    void   UpdateRecords(uintptr_t entityList, uintptr_t localCtrl);
+    void   ForceFire(bool down);
+    void   AutoStop(uintptr_t localPawn);
 
+    // Math helpers
+    static Vector3 CalcAngle(const Vector3& src, const Vector3& dst);
+    static float   CalcFov(const Vector3& va, const Vector3& aa);
+    static Vector3 NormAngles(Vector3 a);
+    static float   GetDistance(const Vector3& a, const Vector3& b);
+
+    // Estimations (no full trace available from this context)
+    float EstimateHitchance(float fov, float distance, bool moving);
+    float EstimateDamage(float distance, int targetArmor);
+    bool  IsSniper(uintptr_t entityList, uintptr_t localPawn);
+
+    // Resolver / backtrack
+    EntityState& StateFor(int idx);
+    float        ResolveYaw(int idx, float observedYaw);
+    bool         GetBacktrackPoint(int idx, float maxTimeMs, Vector3& outHead);
+
+    // State
+    uintptr_t m_lastTarget;
+    DWORD     m_lastTime;
+    bool      m_firing;
+
+    static const int kMaxEntities = 64;
+    EntityState m_states[kMaxEntities + 1];
+};

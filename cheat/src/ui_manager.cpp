@@ -4,6 +4,7 @@
 
 #include "ui_manager.h"
 #include "cheat_core.h"
+#include <vector>
 #include "lua_api.h"
 #include "logger.h"
 #include "config.h"
@@ -200,8 +201,51 @@ void UIManager::RenderESP() {
             if (!name.empty())
                 dl->AddText(ImVec2(x1, y1-14.f), IM_COL32(255,255,255,230), name.c_str());
         }
+
+        // Skeleton ESP — dynamic: find all valid bones, auto-connect nearby ones
+        if (cfg->m_espSkeleton) {
+            uintptr_t boneArr = CS2::GetBoneArray(pawn);
+            if (boneArr) {
+                // Collect valid bone positions (within player bounding box)
+                struct BonePt { Vector3 w; Vector2 s; bool onScreen; };
+                std::vector<BonePt> pts;
+
+                for (int b = 0; b < 128; b++) {
+                    Vector3 bp = CS2::GetBonePos(boneArr, b);
+                    // Filter: must be within player extent (~60 radius, -10 to 90 vertical)
+                    float dx = bp.x - origin.x, dy = bp.y - origin.y, dz = bp.z - origin.z;
+                    if (bp.x==0&&bp.y==0&&bp.z==0) continue;
+                    if (fabsf(dx)>60||fabsf(dy)>60||dz<-20||dz>100) continue;
+                    Vector2 sp;
+                    bool vis = Utils::WorldToScreen(bp, sp, vm, sw, sh);
+                    pts.push_back({bp, sp, vis});
+                }
+
+                // Connect bones that are within 35 units of each other in 3D
+                // This creates a natural skeleton without needing exact indices
+                for (size_t i = 0; i < pts.size(); i++) {
+                    for (size_t j = i+1; j < pts.size(); j++) {
+                        if (!pts[i].onScreen || !pts[j].onScreen) continue;
+                        float dx = pts[i].w.x-pts[j].w.x;
+                        float dy = pts[i].w.y-pts[j].w.y;
+                        float dz = pts[i].w.z-pts[j].w.z;
+                        float d = sqrtf(dx*dx+dy*dy+dz*dz);
+                        if (d > 0.5f && d < 32.f) {
+                            dl->AddLine(ImVec2(pts[i].s.x,pts[i].s.y),
+                                        ImVec2(pts[j].s.x,pts[j].s.y),
+                                        col, 1.2f);
+                        }
+                    }
+                }
+            }
+        }
     }
 
+    // Spread circle around crosshair (base inaccuracy indicator)
+    if (cfg->m_espEnabled) {
+        float cx = sw * 0.5f, cy = sh * 0.5f;
+        dl->AddCircle(ImVec2(cx,cy), 2.5f, IM_COL32(255,255,255,200), 12, 1.f); // dot center
+    }
 }
 
 void UIManager::Render() {
@@ -296,6 +340,10 @@ void UIManager::RenderMenu() {
             RenderRagebotTab();
             ImGui::EndTabItem();
         }
+        if (ImGui::BeginTabItem("Legit")) {
+            RenderLegitbotTab();
+            ImGui::EndTabItem();
+        }
         if (ImGui::BeginTabItem("Anti-Aim")) {
             RenderAntiAimTab();
             ImGui::EndTabItem();
@@ -328,30 +376,22 @@ void UIManager::RenderMenu() {
 void UIManager::RenderRagebotTab() {
     Config* config = g_Cheat->GetConfig();
 
-    // ---- Aimbot section ----
-    ImGui::Text("Aimbot");
+    ImGui::TextColored(ImVec4(0,1,0.4f,1), "Ragebot (active) — aims via dwViewAngles, fires via dwForceAttack");
+    ImGui::TextColored(ImVec4(0.6f,0.6f,0.6f,1), "Auto Fire off = hold LMB to assist. Smooth>1 slows the snap.");
     ImGui::Separator();
-    ImGui::Checkbox("Enabled##aim", &config->m_aimbotEnabled);
-    ImGui::SliderFloat("FOV##aim",    &config->m_aimbotFov,    0.1f, 180.f, "%.1f deg");
-    ImGui::SliderFloat("Smooth##aim", &config->m_aimbotSmooth, 1.f,  20.f,  "%.1f");
-    ImGui::Checkbox("Teamcheck (off = no FF)", &config->m_aimbotTeamcheck);
     ImGui::Spacing();
-    ImGui::Text("Key: hold LMB to aim (always active while LMB held)");
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Text("Legacy Ragebot (stub)");
 
     ImGui::BeginChild("RagebotLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
     ImGui::Checkbox("Ragebot Enabled", &config->m_ragebotEnabled);
-    ImGui::SliderFloat("FOV", &config->m_ragebotFOV, 0.0f, 180.0f);
-    ImGui::SliderFloat("Smooth", &config->m_ragebotSmooth, 0.0f, 10.0f);
-    ImGui::SliderFloat("Hitchance", &config->m_ragebotHitchance, 0.0f, 100.0f);
-    ImGui::SliderFloat("Min Damage", &config->m_ragebotMinDamage, 0.0f, 100.0f);
+    ImGui::SliderFloat("FOV", &config->m_ragebotFOV, 0.0f, 180.0f, "%.0f deg");
+    ImGui::SliderFloat("Smooth", &config->m_ragebotSmooth, 0.0f, 10.0f, "%.1f (>=1 instant)");
+    ImGui::SliderFloat("Hitchance", &config->m_ragebotHitchance, 0.0f, 100.0f, "%.0f%%");
+    ImGui::SliderFloat("Min Damage", &config->m_ragebotMinDamage, 0.0f, 100.0f, "%.0f hp");
     ImGui::Checkbox("Auto Fire", &config->m_ragebotAutoFire);
     ImGui::Checkbox("Auto Stop", &config->m_ragebotAutoStop);
     ImGui::Checkbox("Extrapolation", &config->m_ragebotExtrapolation);
     ImGui::Checkbox("Backtrack", &config->m_ragebotBacktrack);
-    ImGui::SliderFloat("Backtrack Time", &config->m_ragebotBacktrackTime, 0.0f, 0.5f);
+    ImGui::SliderFloat("Backtrack Time", &config->m_ragebotBacktrackTime, 0.0f, 0.5f, "%.2f s");
     ImGui::EndChild();
 
     ImGui::SameLine();
@@ -368,18 +408,56 @@ void UIManager::RenderRagebotTab() {
 }
 
 // -----------------------------------------------------------------
+// Legitbot tab — triggerbot + smooth aim
+// -----------------------------------------------------------------
+void UIManager::RenderLegitbotTab() {
+    Config* config = g_Cheat->GetConfig();
+
+    ImGui::BeginChild("LegitLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
+    ImGui::Text("Triggerbot");
+    ImGui::Separator();
+    ImGui::Checkbox("Enabled##trig",  &config->m_triggerbotEnabled);
+    ImGui::SliderFloat("FOV##trig",   &config->m_triggerbotFov,   0.5f, 10.f, "%.1f deg");
+    ImGui::SliderInt("Delay (ms)",    &config->m_triggerbotDelay, 0,    200);
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1), "Auto-fires when crosshair on enemy");
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("LegitRight", ImVec2(0, 0), true);
+    ImGui::Text("Legit Aimbot");
+    ImGui::Separator();
+    ImGui::Checkbox("Enabled##la",   &config->m_aimbotEnabled);
+    ImGui::SliderFloat("FOV##la",    &config->m_aimbotFov,    0.5f, 20.f, "%.1f deg");
+    ImGui::SliderFloat("Smooth##la", &config->m_aimbotSmooth, 2.f,  20.f, "%.1f");
+    ImGui::Checkbox("No teamkill##la", &config->m_aimbotTeamcheck);
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(1,1,0,1), "Hold LMB to activate");
+    ImGui::EndChild();
+}
+
+// -----------------------------------------------------------------
 // Render anti-aim tab
 // -----------------------------------------------------------------
 void UIManager::RenderAntiAimTab() {
     Config* config = g_Cheat->GetConfig();
 
+    ImGui::TextColored(ImVec4(0,1,0.4f,1), "Anti-Aim (active) — writes dwViewAngles each tick");
+    ImGui::Separator();
+
     ImGui::BeginChild("AntiAimLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
     ImGui::Checkbox("Anti-Aim Enabled", &config->m_antiaimEnabled);
-    ImGui::Combo("Mode", &config->m_antiaimMode, 
+    ImGui::Combo("Yaw Mode", &config->m_antiaimMode,
         "Backward\0Jitter\0Spin\0Sideways\0Desync\0Jitter 3-Way\0Custom\0");
-    ImGui::SliderFloat("Spin Speed", &config->m_antiaimSpinSpeed, 1.0f, 20.0f);
+    ImGui::SliderFloat("Spin Speed", &config->m_antiaimSpinSpeed, 1.0f, 20.0f, "%.1f deg/tick");
+    ImGui::Separator();
+    ImGui::Combo("Pitch Mode", &config->m_antiaimPitchMode,
+        "Down\0Up\0Zero\0Custom\0");
+    ImGui::SliderFloat("Pitch (custom)", &config->m_antiaimPitch, -89.0f, 89.0f, "%.0f deg");
+    ImGui::Separator();
     ImGui::Checkbox("Desync", &config->m_antiaimDesync);
-    ImGui::SliderFloat("Desync Amount", &config->m_antiaimDesyncAmount, 0.0f, 180.0f);
+    ImGui::SliderFloat("Desync Amount", &config->m_antiaimDesyncAmount, 0.0f, 180.0f, "%.0f deg");
     ImGui::Checkbox("Invert on Shot", &config->m_antiaimInvertOnShot);
     ImGui::Checkbox("Fake Lag", &config->m_antiaimFakeLag);
     ImGui::SliderFloat("Fake Lag Amount", &config->m_antiaimFakeLagAmount, 0.0f, 20.0f);
@@ -397,6 +475,9 @@ void UIManager::RenderAntiAimTab() {
     ImGui::Checkbox("On Air", &config->m_antiaimOnAir);
     ImGui::Checkbox("On Ground", &config->m_antiaimOnGround);
     ImGui::Checkbox("Edge", &config->m_antiaimEdge);
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(1,0.8f,0,1), "Note: true desync / packet choke need");
+    ImGui::TextColored(ImVec4(1,0.8f,0,1), "the user cmd; visible yaw is applied now.");
     ImGui::EndChild();
 }
 
@@ -463,13 +544,19 @@ void UIManager::RenderMiscTab() {
     ImGui::BeginChild("MiscLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
     ImGui::Text("Movement");
     ImGui::Separator();
-    ImGui::Checkbox("Bunny Hop", &config->m_bunnyhop);
+    ImGui::Checkbox("Bunny Hop",   &config->m_bunnyhop);
+    ImGui::Checkbox("Auto Strafe", &config->m_autoStrafe);
+    ImGui::Checkbox("Third Person", &config->m_thirdPerson);
+    ImGui::SliderFloat("TP Distance", &config->m_thirdPersonDist, 50.f, 300.f, "%.0f");
+    ImGui::Spacing();
     ImGui::Text("Combat");
     ImGui::Separator();
-    ImGui::Checkbox("No Recoil", &config->m_noRecoil);
+    ImGui::Checkbox("No Recoil / No Spread", &config->m_noRecoil);
+    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1),"Zeroes punch+spray+accuracy");
+    ImGui::Spacing();
     ImGui::Text("Utility");
     ImGui::Separator();
-    ImGui::Checkbox("No Flash", &config->m_noFlash);
+    ImGui::Checkbox("No Flash",    &config->m_noFlash);
     ImGui::Checkbox("Vote Reveal", &config->m_voteReveal);
     ImGui::Checkbox("Auto Accept", &config->m_autoAccept);
     ImGui::EndChild();

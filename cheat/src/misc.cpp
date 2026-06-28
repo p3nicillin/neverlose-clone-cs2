@@ -1,8 +1,13 @@
 // =================================================================
 // misc.cpp - Misc features
+// No-recoil: zeroes punch + weapon recoil index + accuracy penalty
+// No-spread:  zeroes weapon spread (m_fAccuracyPenalty zeroed each tick)
+// No-flash:   zeroes flash duration/alpha
+// Bhop:       via CreateMove hook (create_move.cpp)
 // =================================================================
 
 #include "misc.h"
+#include "create_move.h"
 #include "game_classes.h"
 #include "offsets.h"
 #include "memory.h"
@@ -31,83 +36,98 @@ void Misc::Update() {
     uintptr_t localPawn = CS2::Read<uintptr_t>(localPawnAddr);
     if (!localPawn) return;
 
-    // ----------------------------------------------------------------
-    // Bunny hop — skip for now, dwForceJump unused in CS2 2025
-    // ----------------------------------------------------------------
+    // ---- No recoil + No spread ----
+    // Punch zeroing is handled in CreateMove (post-original, with velocity zeroed).
+    // Only do weapon field zeroing here as a backup at 1000Hz.
+    if (cfg->m_noRecoil && !CreateMoveHook::IsActive()) {
+        // Fallback: if CreateMove hook not active, zero punch here
+        uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
+        if (punchSvc) {
+            float z = 0.f;
+            Memory::Write(punchSvc + 0x48, &z, 4);
+            Memory::Write(punchSvc + 0x4C, &z, 4);
+            Memory::Write(punchSvc + 0x50, &z, 4);
+            Memory::Write(punchSvc + 0x54, &z, 4); // velocity
+            Memory::Write(punchSvc + 0x58, &z, 4);
+            Memory::Write(punchSvc + 0x5C, &z, 4);
+        }
 
-    // ----------------------------------------------------------------
-    // No recoil
-    // Confirmed offsets from cs2-dumper client_dll.json:
-    //   pawn + 0x1490 (m_pAimPunchServices) → CAimPunchServices*
-    //   component + 0x48 (m_vecCsViewPunchAngle) → Vector3 punch
-    //   pawn + 0x1C64 (m_iShotsFired) → int
-    // Guard: only apply when shots > 0 (prevents WASD camera spin).
-    // ----------------------------------------------------------------
-    if (cfg->m_noRecoil) {
-        uintptr_t viewAngAddr = Offsets::Get("dwViewAngles");
-        if (viewAngAddr) {
-            int shots = CS2::Read<int>(localPawn + 0x1C64);  // m_iShotsFired
-
-            uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
-
-            // m_vecCsViewPunchAngle[0x48] = yaw component (horizontal)
-            // m_vecCsViewPunchAngle[0x4C] = pitch component (vertical)  ← SWAPPED from typical Vector3
-            // m_flAimPitchAngle[0x498] on pawn = aim pitch (alternative source)
-            float yawPunch   = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
-            float pitchPunch = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
-
-            // Delta approach: only apply the change each tick
-            static float lastYaw = 0.f, lastPitch = 0.f;
-            if (shots <= 0) { lastYaw = 0.f; lastPitch = 0.f; }
-            else if (punchSvc) {
-                float dYaw   = yawPunch   - lastYaw;
-                float dPitch = pitchPunch - lastPitch;
-                lastYaw   = yawPunch;
-                lastPitch = pitchPunch;
-
-                if (fabsf(dYaw) > 0.0001f || fabsf(dPitch) > 0.0001f) {
-                    static bool diagDone = false;
-                    if (!diagDone) {
-                        diagDone = true;
-                        char buf[160];
-                        sprintf_s(buf, "NoRecoil: dPitch=%.4f dYaw=%.4f (pitch=%.3f yaw=%.3f)",
-                            dPitch, dYaw, pitchPunch, yawPunch);
-                        Logger::Log(buf);
-                    }
-                    Vector3 va = CS2::Read<Vector3>(viewAngAddr);
-                    // Pitch: positive punch → view goes UP → to cancel, INCREASE pitch (look down)
-                    va.x += dPitch;
-                    // Yaw: positive punch → view goes RIGHT → to cancel, DECREASE yaw
-                    va.y -= dYaw;
-                    if (va.x >  89.f) va.x =  89.f;
-                    if (va.x < -89.f) va.x = -89.f;
-                    Memory::Write(viewAngAddr, &va, sizeof(va));
-                }
+        uintptr_t listAddr   = Offsets::Get("dwEntityList");
+        uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+        if (entityList) {
+            uintptr_t weapSvc    = CS2::Read<uintptr_t>(localPawn + 0x11E0);
+            uint32_t  weapHandle = weapSvc ? CS2::Read<uint32_t>(weapSvc + 0x60) : 0;
+            uintptr_t weapon     = weapHandle ? CS2::HandleToPtr(entityList, weapHandle) : 0;
+            if (weapon) {
+                float z = 0.f;
+                Memory::Write(weapon + 0x17E0, &z, 4);
+                Memory::Write(weapon + 0x17D0, &z, 4);
             }
         }
     }
 
-    // ----------------------------------------------------------------
-    // No flash
-    // ----------------------------------------------------------------
-    uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
-    if (!localCtrlAddr) return;
-    uintptr_t localCtrl = CS2::Read<uintptr_t>(localCtrlAddr);
-    if (!localCtrl) return;
-    uintptr_t listAddr   = Offsets::Get("dwEntityList");
-    uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
-    uintptr_t localPawn2 = entityList ? CS2::GetPawn(entityList, localCtrl) : 0;
-    if (!localPawn2) return;
-
+    // ---- No flash ----
     if (cfg->m_noFlash) {
-        const struct { const char* n; uintptr_t fb; } ff[] = {
-            { "m_flFlashDuration", 0x121C },
-            { "m_flFlashMaxAlpha", 0x1218 },
-        };
-        float zero = 0.f;
-        for (auto& f : ff) {
-            uintptr_t off = Offsets::Get(f.n, f.fb);
-            if (off) Memory::Write(localPawn2 + off, &zero, sizeof(zero));
+        uintptr_t listAddr   = Offsets::Get("dwEntityList");
+        uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+        uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
+        uintptr_t localCtrl = localCtrlAddr ? CS2::Read<uintptr_t>(localCtrlAddr) : 0;
+        uintptr_t pawn2 = (entityList && localCtrl) ? CS2::GetPawn(entityList, localCtrl) : 0;
+        if (pawn2) {
+            float z = 0.f;
+            const struct { const char* n; uintptr_t fb; } ff[] = {
+                { "m_flFlashDuration", 0x121C },
+                { "m_flFlashMaxAlpha", 0x1218 },
+            };
+            for (auto& f : ff) {
+                uintptr_t off = Offsets::Get(f.n, f.fb);
+                if (off) Memory::Write(pawn2 + off, &z, 4);
+            }
+        }
+    }
+
+    // ---- Third person ----
+    // CS2 stores third-person camera state on the pawn's CPlayer_ObserverServices.
+    //   pawn + m_pObserverServices -> +m_iObserverMode (int)  : 0=first,1=deathcam(3rd)
+    //                              -> +m_flObserverChaseDistance (float) : camera pullback
+    // Offsets are versioned; we use Offsets::Get with conservative fallbacks and
+    // only write while the local player is alive to avoid disturbing real spectating.
+    {
+        static bool s_prevTP = false;
+        bool wantTP = cfg->m_thirdPerson;
+        uintptr_t obsSvcOff = Offsets::Get("m_pObserverServices", 0x1518);
+        uintptr_t obsSvc    = obsSvcOff ? CS2::Read<uintptr_t>(localPawn + obsSvcOff) : 0;
+        if (obsSvc) {
+            uintptr_t modeOff  = Offsets::Get("m_iObserverMode",            0x40);
+            uintptr_t distOff  = Offsets::Get("m_flObserverChaseDistance",  0x50);
+            if (wantTP) {
+                int mode = 1;                       // OBS_MODE_DEATHCAM => chase cam
+                float dist = cfg->m_thirdPersonDist;
+                Memory::Write(obsSvc + modeOff, &mode, sizeof(mode));
+                Memory::Write(obsSvc + distOff, &dist, sizeof(dist));
+            } else if (s_prevTP) {
+                int mode = 0;                       // back to first person
+                float dist = 0.f;
+                Memory::Write(obsSvc + modeOff, &mode, sizeof(mode));
+                Memory::Write(obsSvc + distOff, &dist, sizeof(dist));
+            }
+        }
+        s_prevTP = wantTP;
+    }
+
+    // ---- Auto-strafe ----
+    if (cfg->m_autoStrafe) {
+        // Check if player is in the air and moving mouse horizontally
+        uint32_t flags = CS2::Read<uint32_t>(localPawn + 0x3F8);
+        bool inAir = !(flags & 1);
+        if (inAir) {
+            POINT cur; GetCursorPos(&cur);
+            static POINT last = cur;
+            int dx = cur.x - last.x;
+            last = cur;
+            // Apply strafer: if mouse moving right, strafe right (+D), and vice versa
+            // This is handled through view angle manipulation to create circle-strafe
+            // Actual strafe needs CreateMove cmd->flSideMove
         }
     }
 }

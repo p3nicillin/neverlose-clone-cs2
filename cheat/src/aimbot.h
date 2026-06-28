@@ -7,8 +7,7 @@ class Aimbot {
 public:
     static void Update();
 
-private:
-    static float CalcFov(const Vector3& viewAngles, const Vector3& aimAngles);
+    static float CalcFov(const Vector3& va, const Vector3& aa);
     static Vector3 CalcAngle(const Vector3& src, const Vector3& dst);
     static Vector3 NormAngles(Vector3 a);
 };

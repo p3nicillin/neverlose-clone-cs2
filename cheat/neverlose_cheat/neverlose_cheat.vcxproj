@@ -160,10 +160,9 @@
     <ClCompile Include="..\vendor\imgui\imgui_impl_dx11.cpp" />
     <ClCompile Include="..\vendor\imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="..\src\dx11_hook.cpp" />
-    <ClCompile Include="..\src\antiaim.cpp">
-      <ExcludedFromBuild>true</ExcludedFromBuild>
-    </ClCompile>
+    <ClCompile Include="..\src\antiaim.cpp" />
     <ClCompile Include="..\src\aimbot.cpp" />
+    <ClCompile Include="..\src\triggerbot.cpp" />
     <ClCompile Include="..\src\feature_stubs.cpp" />
     <ClCompile Include="..\src\create_move.cpp" />
     <ClCompile Include="..\src\offset_updater.cpp" />
@@ -184,10 +183,9 @@
     </ClCompile>
     <ClCompile Include="..\src\memory.cpp" />
     <ClCompile Include="..\src\misc.cpp" />
+    <ClCompile Include="..\src\no_spread.cpp" />
     <ClCompile Include="..\src\offsets.cpp" />
-    <ClCompile Include="..\src\ragebot.cpp">
-      <ExcludedFromBuild>true</ExcludedFromBuild>
-    </ClCompile>
+    <ClCompile Include="..\src\ragebot.cpp" />
     <ClCompile Include="..\src\ui_manager.cpp" />
     <ClCompile Include="..\src\utils.cpp" />
     <ClCompile Include="..\src\visuals.cpp" />

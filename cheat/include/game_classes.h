@@ -63,6 +63,28 @@ inline int   GetTeam     (uintptr_t controller) { return Read<int>    (controlle
 inline uint8_t GetLife   (uintptr_t pawn)       { return Read<uint8_t>(pawn + Offsets::Get("m_lifeState", 0x338)); }
 inline std::string GetName(uintptr_t controller){ return ReadString(controller + Offsets::Get("m_sSanitizedPlayerName", 0x700)); }
 
+// Active weapon: pawn → m_pWeaponServices(0x11E0) → m_hActiveWeapon(0x60)
+inline uintptr_t GetActiveWeapon(uintptr_t listBase, uintptr_t pawn) {
+    uintptr_t svc = Read<uintptr_t>(pawn + 0x11E0);
+    if (!svc) return 0;
+    uint32_t h = Read<uint32_t>(svc + 0x60);
+    return h ? HandleToPtr(listBase, h) : 0;
+}
+
+// Skeleton/bone helpers
+// pawn → m_pGameSceneNode(0x330) → m_modelState(0x150) → bone array
+inline uintptr_t GetBoneArray(uintptr_t pawn) {
+    uintptr_t node = Read<uintptr_t>(pawn + 0x330);
+    if (!node) return 0;
+    // m_modelState at +0x150, bone array within modelState at +0x80
+    uintptr_t modelState = node + 0x150;
+    return Read<uintptr_t>(modelState + 0x80);
+}
+inline Vector3 GetBonePos(uintptr_t boneArr, int boneIdx) {
+    // Each bone entry = 32 bytes (3x4 matrix + padding)
+    return Read<Vector3>(boneArr + boneIdx * 32);
+}
+
 inline Matrix4x4 GetViewMatrix() {
     uintptr_t va = Offsets::Get("dwViewMatrix");
     if (!va) return {};

@@ -19,6 +19,8 @@
 #include "dx11_hook.h"
 #include "aimbot.h"
 #include "create_move.h"
+#include "no_spread.h"
+#include "triggerbot.h"
 #include <process.h>
 
 CheatCore* g_Cheat = nullptr;
@@ -109,6 +111,12 @@ bool CheatCore::Initialize() {
             Logger::Log("CreateMove: hooked");
         else
             Logger::LogError("CreateMove: failed — will use misc.cpp fallback");
+
+        // Initialize no-spread trace infrastructure
+        if (NoSpread::Initialize())
+            Logger::Log("NoSpread: trace functions ready");
+        else
+            Logger::LogError("NoSpread: trace pattern scan failed");
         return 0;
     }, nullptr, 0, nullptr);
 
@@ -142,8 +150,9 @@ void CheatCore::Update() {
     // Update misc features (bhop, no recoil, no flash)
     m_misc->Update();
 
-    // Aimbot
+    // Aimbot + Triggerbot
     Aimbot::Update();
+    Triggerbot::Update();
 
     // Check for cheats
     m_revealer->Detect();

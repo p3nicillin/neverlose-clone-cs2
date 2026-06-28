@@ -29,6 +29,7 @@ private:
 
     void RenderESP();
     void RenderRagebotTab();
+    void RenderLegitbotTab();
     void RenderAntiAimTab();
     void RenderVisualsTab();
     void RenderMiscTab();

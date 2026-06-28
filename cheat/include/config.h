@@ -147,6 +147,14 @@ public:
     bool m_bunnyhop;
     bool m_noRecoil;
     bool m_noFlash;
+    bool m_autoStrafe;
+    bool m_thirdPerson;
+    float m_thirdPersonDist;
+
+    // Triggerbot
+    bool  m_triggerbotEnabled;
+    float m_triggerbotFov;    // cone in degrees
+    int   m_triggerbotDelay;  // ms delay before firing
 
     // Aimbot
     bool  m_aimbotEnabled;

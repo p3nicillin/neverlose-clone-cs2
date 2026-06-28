@@ -189,9 +189,16 @@ void Config::LoadDefaultConfig() {
     m_autoPistol = true;
     m_autoReload = true;
 
-    m_bunnyhop = false;
-    m_noRecoil = false;
-    m_noFlash  = false;
+    m_bunnyhop   = false;
+    m_noRecoil   = false;
+    m_noFlash    = false;
+    m_autoStrafe = false;
+    m_thirdPerson     = false;
+    m_thirdPersonDist = 150.f;
+
+    m_triggerbotEnabled = false;
+    m_triggerbotFov     = 1.5f;
+    m_triggerbotDelay   = 50;
 
     m_aimbotEnabled   = false;
     m_aimbotKey       = 0;      // 0 = LMB

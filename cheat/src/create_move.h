@@ -32,6 +32,7 @@ struct CS2UserCmd {
 class CreateMoveHook {
 public:
     static bool Install();
+    static bool InstallAt(uintptr_t addr);
     static void Uninstall();
 
     // Called every tick with the built command — modify before return.
