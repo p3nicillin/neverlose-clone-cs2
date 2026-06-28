@@ -14,8 +14,9 @@
 //   - backtrack (per-entity 12-tick ring buffer of head positions)
 // =================================================================
 
-#include "stdafx.h"
 #include "ragebot.h"
+#include "create_move.h"
+#include "no_spread.h"
 #include "game_classes.h"
 #include "memory.h"
 #include "offsets.h"
@@ -23,6 +24,7 @@
 #include "config.h"
 #include "cheat_core.h"
 #include <cmath>
+#include <windows.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -184,14 +186,35 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
 }
 
 // -----------------------------------------------------------------
-// Fire / movement primitives
+// Visibility check (autowall-aware trace)
+// -----------------------------------------------------------------
+bool Ragebot::IsVisible(uintptr_t localPawn, uintptr_t targetPawn,
+                        const Vector3& eyePos, const Vector3& targetPos) {
+    // Fast distance pre-check (skip trace for very close targets)
+    float dist = GetDistance(eyePos, targetPos);
+    if (dist < 10.f) return true;
+
+    // Use NoSpread trace if available (CreateFilter + TraceShape)
+    if (NoSpread::IsReady()) {
+        // CheckSpreadHit with maxTicks=1 and hitbox=-1 (any hitbox) acts as a
+        // basic visibility trace with the entity as the target
+        int tick = 0;
+        return NoSpread::CheckSpreadHit(localPawn, targetPawn, Vector3(0,0,0), -1, 0, 1, &tick);
+    }
+
+    // Fallback: simple distance gate — only target enemies within 3500 units
+    // (eliminates targets across the entire map through walls)
+    return dist < 3500.f;
+}
+
+// -----------------------------------------------------------------
+// Fire / movement primitives — SendInput (same as triggerbot, works reliably)
 // -----------------------------------------------------------------
 void Ragebot::ForceFire(bool down) {
-    uintptr_t fa = Offsets::Get("dwForceAttack");
-    if (!fa) return;
-    // CS2 force-button convention used by other internals: 5 = down(held), 4 = up.
-    int val = down ? 65537 : 256; // CS2: 65537=held 256=released
-    Memory::Write(fa, &val, sizeof(val));
+    INPUT inp = {};
+    inp.type = INPUT_MOUSE;
+    inp.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+    SendInput(1, &inp, sizeof(INPUT));
 }
 
 void Ragebot::AutoStop(uintptr_t localPawn) {
@@ -249,6 +272,11 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
             head.y += sinf(ry * DEG2RAD) * 4.f;
         }
 
+        // Visibility check: skip enemies we can't see or shoot through
+        // This prevents targeting people through 10 walls
+        if (!IsVisible(localPawn, pawn, eyePos, head))
+            continue;
+
         Vector3 headAng = CalcAngle(eyePos, head);
         float   headFov = CalcFov(viewAng, headAng);
 
@@ -280,16 +308,22 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
 }
 
 // -----------------------------------------------------------------
-// Main entry — called every tick from CheatCore::Update()
+// Main entry — called from CheatCore::Update() (CheatThread, ~1000Hz)
+//
+// Silent aim: stores aim angle via CreateMoveHook::SetRagebotAim().
+// The CreateMove hook (game thread, 64Hz) applies it silently:
+//   PRE-original: sets viewAngles to aim angle
+//   POST-original: restores player's real viewAngles
+// Fire: SendInput LEFTDOWN/UP (same mechanism as working triggerbot)
 // -----------------------------------------------------------------
 void Ragebot::Run(CUserCmd* /*cmd*/) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_ragebotEnabled) {
+        CreateMoveHook::ClearRagebotAim();
         if (m_firing) { ForceFire(false); m_firing = false; }
         return;
     }
 
-    // Only operate while CS2 is focused (avoids firing in menus)
     if (GetForegroundWindow() == NULL) return;
 
     uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
@@ -303,16 +337,18 @@ void Ragebot::Run(CUserCmd* /*cmd*/) {
 
     uintptr_t localPawn = CS2::GetPawn(entityList, localCtrl);
     if (!localPawn) {
-        // fall back to direct local pawn pointer
         uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
         localPawn = lpAddr ? CS2::Read<uintptr_t>(lpAddr) : 0;
     }
     if (!localPawn) return;
 
     int localHp = CS2::GetHealth(localPawn);
-    if (localHp <= 0) { if (m_firing) { ForceFire(false); m_firing = false; } return; }
+    if (localHp <= 0) {
+        CreateMoveHook::ClearRagebotAim();
+        if (m_firing) { ForceFire(false); m_firing = false; }
+        return;
+    }
 
-    // Refresh backtrack/resolver history first
     UpdateRecords(entityList, localCtrl);
 
     Vector3 origin  = CS2::GetAbsOrigin(localPawn);
@@ -323,80 +359,53 @@ void Ragebot::Run(CUserCmd* /*cmd*/) {
 
     Target target = SelectTarget(entityList, localCtrl, localPawn, eyePos, viewAng, myTeam);
     if (!target.valid) {
+        CreateMoveHook::ClearRagebotAim();
         if (m_firing) { ForceFire(false); m_firing = false; }
         m_lastTarget = 0;
         return;
     }
 
-    // Auto-fire gating key: if auto-fire off, require LMB held (rage assist)
     bool keyHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
     if (!cfg->m_ragebotAutoFire && !keyHeld) {
+        CreateMoveHook::ClearRagebotAim();
         if (m_firing) { ForceFire(false); m_firing = false; }
         return;
     }
 
-    // Distance + movement for estimates
     float distance = GetDistance(eyePos, target.aimPoint);
     Vector3 vel = CS2::Read<Vector3>(localPawn + Offsets::Get("m_vecVelocity", 0x3F4));
     bool moving = (fabsf(vel.x) + fabsf(vel.y)) > 5.f;
 
-    // Auto-stop: zero velocity so we settle (do before hitchance recompute)
-    if (cfg->m_ragebotAutoStop && moving) {
-        AutoStop(localPawn);
-        moving = false;
-    }
+    if (cfg->m_ragebotAutoStop && moving) { AutoStop(localPawn); moving = false; }
 
-    // Compute aim angle to (possibly backtracked / resolved) point
+    // Compute aim angle
     Vector3 aimAng = CalcAngle(eyePos, target.aimPoint);
 
-    // Smoothing (rage usually instant; honour slider if > 1)
-    float smooth = cfg->m_ragebotSmooth;
-    if (smooth > 1.f) {
-        float dPitch = aimAng.x - viewAng.x;
-        float dYaw   = aimAng.y - viewAng.y;
-        while (dYaw >  180.f) dYaw -= 360.f;
-        while (dYaw < -180.f) dYaw += 360.f;
-        aimAng.x = viewAng.x + dPitch / smooth;
-        aimAng.y = viewAng.y + dYaw   / smooth;
-        aimAng   = NormAngles(aimAng);
-    }
+    // Pass aim angle to CreateMove hook (silent aim — screen doesn't move)
+    CreateMoveHook::SetRagebotAim(aimAng);
 
-    // Write aim to view angles (what the next CreateMove will sample)
-    Memory::Write(viewAngAddr, &aimAng, sizeof(aimAng));
-
-    // Hitchance estimate (post-smoothing FOV ~0 since we snapped on aimAng)
-    float postFov = cfg->m_ragebotSmooth > 1.f ? CalcFov(aimAng, CalcAngle(eyePos, target.aimPoint))
-                                               : 0.f;
-    float hc = EstimateHitchance(postFov, distance, moving);
-    if (hc < cfg->m_ragebotHitchance) {
-        if (m_firing) { ForceFire(false); m_firing = false; }
-        return;
-    }
-
-    // Min-damage estimate
-    int targetArmor = CS2::Read<int>(target.pawn + Offsets::Get("m_ArmorValue", 0xEB0));
+    // Hitchance + min-damage gate
+    float hc = EstimateHitchance(0.f, distance, moving);
+    if (hc < cfg->m_ragebotHitchance) { if (m_firing){ForceFire(false);m_firing=false;} return; }
+    int   targetArmor = CS2::Read<int>(target.pawn + Offsets::Get("m_ArmorValue", 0xEB0));
     float dmg = EstimateDamage(distance, targetArmor);
-    if (target.baim) dmg *= 0.5f;   // body shots do less
-    if (dmg < cfg->m_ragebotMinDamage) {
-        if (m_firing) { ForceFire(false); m_firing = false; }
-        return;
-    }
+    if (target.baim) dmg *= 0.5f;
+    if (dmg < cfg->m_ragebotMinDamage) { if (m_firing){ForceFire(false);m_firing=false;} return; }
 
-    // Quick-scope: snipers need to be scoped to be accurate.
+    // Quick-scope
     if (cfg->m_ragebotQuickScope && IsSniper(entityList, localPawn)) {
-        uintptr_t scopedOff = Offsets::Get("m_bIsScoped", 0x1428);
-        bool scoped = CS2::Read<bool>(localPawn + scopedOff);
+        bool scoped = CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1428));
         if (!scoped) {
-            // press ATTACK2 (scope) this tick, defer the shot to next tick
-            uintptr_t fa2 = Offsets::Get("dwForceAttack2", 0);
-            if (fa2) { int v = 5; Memory::Write(fa2, &v, sizeof(v)); }
+            // Right-click to scope
+            INPUT inp = {}; inp.type=INPUT_MOUSE; inp.mi.dwFlags=MOUSEEVENTF_RIGHTDOWN;
+            SendInput(1,&inp,sizeof(INPUT)); inp.mi.dwFlags=MOUSEEVENTF_RIGHTUP;
+            SendInput(1,&inp,sizeof(INPUT));
             return;
         }
     }
 
-    // Fire
-    ForceFire(true);
-    m_firing     = true;
+    // Fire via SendInput (confirmed working in triggerbot)
+    if (!m_firing) { ForceFire(true); m_firing = true; }
     m_lastTarget = target.pawn;
     m_lastTime   = GetTickCount();
 }

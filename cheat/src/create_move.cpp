@@ -220,6 +220,27 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
 static volatile int  g_cmCallCnt   = 0;
 static volatile bool g_cmConfirmed = false;
 
+// Shared state written by CheatThread, read by game thread (CreateMove).
+// Simple volatile structs — worst case is one frame of lag, no mutex needed.
+static volatile bool g_rbHasTarget  = false;
+static Vector3       g_rbAimAngle   = {};   // ragebot wants to aim here
+
+static volatile bool g_aaActive     = false;
+static Vector3       g_aaFakeAngle  = {};   // anti-aim fake angle
+
+void CreateMoveHook::SetRagebotAim(const Vector3& angle) { g_rbAimAngle = angle; g_rbHasTarget = true; }
+void CreateMoveHook::ClearRagebotAim()                   { g_rbHasTarget = false; }
+void CreateMoveHook::SetAntiAim(const Vector3& angle)    { g_aaFakeAngle = angle; g_aaActive = true; }
+void CreateMoveHook::ClearAntiAim()                      { g_aaActive = false; }
+
+static inline void ClampAngles(Vector3& v) {
+    if (v.x >  89.f) v.x =  89.f;
+    if (v.x < -89.f) v.x = -89.f;
+    while (v.y >  180.f) v.y -= 360.f;
+    while (v.y < -180.f) v.y += 360.f;
+    v.z = 0.f;
+}
+
 // ---- Hooked CreateMove ----
 static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active) {
     ++g_cmCallCnt;
@@ -233,29 +254,48 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         }, nullptr, 0, nullptr);
     }
 
-    uintptr_t lpa = Offsets::Get("dwLocalPlayerPawn");
-    uintptr_t lp  = lpa ? CS2::Read<uintptr_t>(lpa) : 0;
-    Config*   cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-    bool doNoRecoil = lp && cfg && cfg->m_noRecoil && g_cmCallCnt >= 64 && active;
+    uintptr_t lpa   = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t lp    = lpa ? CS2::Read<uintptr_t>(lpa) : 0;
+    uintptr_t vaAddr = Offsets::Get("dwViewAngles");
+    Config*   cfg   = g_Cheat ? g_Cheat->GetConfig() : nullptr;
 
-    // === PRE-ORIGINAL ===
-    // Read punch angles CS2 has accumulated, subtract from dwViewAngles so
-    // the user cmd (and server bullet) uses compensated aim direction.
-    uintptr_t vaAddr   = Offsets::Get("dwViewAngles");
-    uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + 0x1490);
+    if (!vaAddr) {
+        SafeCallOriginal(pThis, nSlot, t, active);
+        return;
+    }
+
+    // === PRE-ORIGINAL: build the angles we send to server ===
+    Vector3 realAngles = CS2::Read<Vector3>(vaAddr);  // player's real mouse aim
+    Vector3 sendAngles = realAngles;                   // what we send to server
+
+    uintptr_t punchSvc = lp ? CS2::Read<uintptr_t>(lp + 0x1490) : 0;
     float prePX = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
     float prePY = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
 
-    if (doNoRecoil && vaAddr) {
-        Vector3 va = CS2::Read<Vector3>(vaAddr);
-        va.x -= prePX;
-        va.y -= prePY;
-        if (va.x >  89.f) va.x =  89.f;
-        if (va.x < -89.f) va.x = -89.f;
-        Memory::Write(vaAddr, &va, sizeof(va));
+    bool ready = g_cmCallCnt >= 64 && active && lp && cfg;
+    if (ready) {
+        // 1. Anti-aim: write fake angles (replaces real aim for server)
+        if (g_aaActive && cfg->m_antiaimEnabled)
+            sendAngles = g_aaFakeAngle;
+
+        // 2. Ragebot silent aim: override with aim angle when shooting.
+        //    Anti-aim is suppressed for the shot tick (player exposes real aim
+        //    to server only for that tick — standard HvH behaviour).
+        bool lmbHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+        if (g_rbHasTarget && (cfg->m_ragebotAutoFire || lmbHeld))
+            sendAngles = g_rbAimAngle;
+
+        // 3. Recoil compensation: subtract accumulated punch so bullet goes straight
+        if (cfg->m_noRecoil) {
+            sendAngles.x -= prePX;
+            sendAngles.y -= prePY;
+        }
+
+        ClampAngles(sendAngles);
+        Memory::Write(vaAddr, &sendAngles, sizeof(sendAngles));
     }
 
-    // === CALL ORIGINAL ===
+    // === CALL ORIGINAL (server sees sendAngles) ===
     if (!SafeCallOriginal(pThis, nSlot, t, active)) {
         CreateMoveHook::Uninstall();
         _beginthreadex(nullptr, 0, [](void*) -> unsigned {
@@ -268,25 +308,26 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
     }
 
     // === POST-ORIGINAL ===
-    // Read the NEW punch CS2 just added for this shot.
-    // Subtract the DELTA (new - pre) from dwViewAngles so crosshair stays on target.
-    // Don't zero punch struct itself — that caused camera shake.
-    if (doNoRecoil && vaAddr && punchSvc) {
-        float postPX = CS2::Read<float>(punchSvc + 0x48);
-        float postPY = CS2::Read<float>(punchSvc + 0x4C);
-        float dX = postPX - prePX;
-        float dY = postPY - prePY;
-        if (fabsf(dX) > 0.001f || fabsf(dY) > 0.001f) {
-            Vector3 va = CS2::Read<Vector3>(vaAddr);
-            va.x -= dX;
-            va.y -= dY;
-            if (va.x >  89.f) va.x =  89.f;
-            if (va.x < -89.f) va.x = -89.f;
-            Memory::Write(vaAddr, &va, sizeof(va));
-        }
-    }
+    if (ready) {
+        // Restore real angles so the player's screen doesn't move
+        // (silent aim: bullet went to sendAngles, player sees realAngles)
+        Memory::Write(vaAddr, &realAngles, sizeof(realAngles));
 
-    if (lp && cfg && cfg->m_bunnyhop && g_cmCallCnt >= 64) DoBhop(lp, nullptr);
+        // Apply recoil punch delta to real angles so crosshair stays on target
+        if (cfg->m_noRecoil && punchSvc) {
+            float postPX = CS2::Read<float>(punchSvc + 0x48);
+            float postPY = CS2::Read<float>(punchSvc + 0x4C);
+            float dX = postPX - prePX, dY = postPY - prePY;
+            if (fabsf(dX) > 0.001f || fabsf(dY) > 0.001f) {
+                Vector3 va = CS2::Read<Vector3>(vaAddr);
+                va.x -= dX; va.y -= dY;
+                ClampAngles(va);
+                Memory::Write(vaAddr, &va, sizeof(va));
+            }
+        }
+
+        if (cfg->m_bunnyhop) DoBhop(lp, nullptr);
+    }
 }
 
 bool CreateMoveHook::Install() {

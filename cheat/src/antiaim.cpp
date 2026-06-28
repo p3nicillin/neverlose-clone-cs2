@@ -14,6 +14,7 @@
 // =================================================================
 
 #include "antiaim.h"
+#include "create_move.h"
 #include "game_classes.h"
 #include "memory.h"
 #include "offsets.h"
@@ -214,8 +215,16 @@ void AntiAim::Apply(CUserCmd* /*cmd*/, bool& sendPacket) {
 
     Vector3 out{ pitch, NormalizeYaw(fakeYaw), 0.f };
     out = Utils::NormalizeAngles(out);
-    Memory::Write(vaAddr, &out, sizeof(out));
     m_appliedAngle = out;
+
+    // Store fake angle for CreateMove hook (applied silently at 64Hz game tick).
+    // Do NOT write to dwViewAngles here — that runs at 1000Hz from CheatThread
+    // and makes the screen spin/stutter. The CreateMove hook applies it at the
+    // correct time and restores the player's real aim afterwards.
+    if (cfg->m_antiaimEnabled)
+        CreateMoveHook::SetAntiAim(out);
+    else
+        CreateMoveHook::ClearAntiAim();
 
     // ---- FAKELAG / CHOKE / HIDE SHOTS ----
     // True packet choking requires writing the "send packet" flag inside the

@@ -66,6 +66,8 @@ private:
     void   UpdateRecords(uintptr_t entityList, uintptr_t localCtrl);
     void   ForceFire(bool down);
     void   AutoStop(uintptr_t localPawn);
+    bool   IsVisible(uintptr_t localPawn, uintptr_t targetPawn,
+                     const Vector3& eyePos, const Vector3& targetPos);
 
     // Math helpers
     static Vector3 CalcAngle(const Vector3& src, const Vector3& dst);

@@ -35,10 +35,16 @@ public:
     static bool InstallAt(uintptr_t addr);
     static void Uninstall();
 
-    // Called every tick with the built command — modify before return.
     static void OnCreateMove(uintptr_t input, CS2UserCmd* cmd, bool active);
 
     static bool IsActive() { return s_installed; }
+
+    // Called from CheatThread — ragebot/antiaim store their desired angles here.
+    // The CreateMove hook applies them silently (restores real angles after original).
+    static void SetRagebotAim(const Vector3& angle);  // silent aim at this angle
+    static void ClearRagebotAim();
+    static void SetAntiAim(const Vector3& angle);     // fake angle for server
+    static void ClearAntiAim();
 
 private:
     static bool s_installed;
