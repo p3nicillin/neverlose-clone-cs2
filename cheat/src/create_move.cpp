@@ -220,133 +220,48 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
 static volatile int  g_cmCallCnt   = 0;
 static volatile bool g_cmConfirmed = false;
 
-// Shared state written by CheatThread, read by game thread (CreateMove).
-// Simple volatile structs — worst case is one frame of lag, no mutex needed.
-static volatile bool g_rbHasTarget  = false;
-static volatile bool g_rbWantFire   = false;  // ragebot wants to fire this tick
-static Vector3       g_rbAimAngle   = {};
+// Stub setters kept for header compatibility — no longer used from CheatThread
+void CreateMoveHook::SetRagebotAim(const Vector3&, bool) {}
+void CreateMoveHook::ClearRagebotAim() {}
+void CreateMoveHook::SetAntiAim(const Vector3&) {}
+void CreateMoveHook::ClearAntiAim() {}
 
-static volatile bool g_aaActive     = false;
-static Vector3       g_aaFakeAngle  = {};
-
-void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire) {
-    g_rbAimAngle  = angle;
-    g_rbHasTarget = true;
-    g_rbWantFire  = fire;
-}
-void CreateMoveHook::ClearRagebotAim()                   { g_rbHasTarget = false; g_rbWantFire = false; }
-void CreateMoveHook::SetAntiAim(const Vector3& angle)    { g_aaFakeAngle = angle; g_aaActive = true; }
-void CreateMoveHook::ClearAntiAim()                      { g_aaActive = false; }
-
-static inline void ClampAngles(Vector3& v) {
-    if (v.x >  89.f) v.x =  89.f;
-    if (v.x < -89.f) v.x = -89.f;
-    while (v.y >  180.f) v.y -= 360.f;
-    while (v.y < -180.f) v.y += 360.f;
-    v.z = 0.f;
-}
-
-// ---- Hooked CreateMove ----
+// ---- Hooked CreateMove — SIMPLE: no-recoil + bhop only ----
 static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active) {
     ++g_cmCallCnt;
     if (!g_cmConfirmed && g_cmCallCnt >= 128) {
         g_cmConfirmed = true;
         _beginthreadex(nullptr, 0, [](void*) -> unsigned {
-            char b[128]; sprintf_s(b, "CreateMove CONFIRMED! client+0x%llX (~%d calls/2s)",
-                (unsigned long long)(g_createMoveAddr - g_clientBase), g_cmCallCnt);
+            char b[128]; sprintf_s(b, "CreateMove CONFIRMED! client+0x%llX",
+                (unsigned long long)(g_createMoveAddr - g_clientBase));
             Logger::Log(b);
             return 0;
         }, nullptr, 0, nullptr);
     }
 
-    uintptr_t lpa   = Offsets::Get("dwLocalPlayerPawn");
-    uintptr_t lp    = lpa ? CS2::Read<uintptr_t>(lpa) : 0;
-    uintptr_t vaAddr = Offsets::Get("dwViewAngles");
-    Config*   cfg   = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-
-    if (!vaAddr) {
-        SafeCallOriginal(pThis, nSlot, t, active);
-        return;
-    }
-
-    // === PRE-ORIGINAL: build the angles we send to server ===
-    Vector3 realAngles = CS2::Read<Vector3>(vaAddr);  // player's real mouse aim
-    Vector3 sendAngles = realAngles;                   // what we send to server
-
-    uintptr_t punchSvc = lp ? CS2::Read<uintptr_t>(lp + 0x1490) : 0;
-    float prePX = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
-    float prePY = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
-
-    bool ready = g_cmCallCnt >= 64 && active && lp && cfg;
-    if (ready) {
-        // 1. Anti-aim: write fake angles (replaces real aim for server)
-        if (g_aaActive && cfg->m_antiaimEnabled)
-            sendAngles = g_aaFakeAngle;
-
-        // 2. Ragebot silent aim: override with aim angle when shooting.
-        bool lmbHeld = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-        bool rbFire  = g_rbHasTarget && (g_rbWantFire || (cfg->m_ragebotAutoFire && g_rbHasTarget));
-        if (g_rbHasTarget)
-            sendAngles = g_rbAimAngle;  // always apply aim, fire check below
-
-        // Fire via dwForceAttack inside CreateMove (same tick as the aim angle).
-        // This is more reliable than SendInput because it's synchronised with the
-        // game tick that processes the user cmd.
-        if (rbFire || lmbHeld) {
-            uintptr_t fa = Offsets::Get("dwForceAttack");
-            if (fa) { int v = 65537; Memory::Write(fa, &v, sizeof(v)); }
-        }
-
-        // 3. Recoil compensation: subtract accumulated punch so bullet goes straight
-        if (cfg->m_noRecoil) {
-            sendAngles.x -= prePX;
-            sendAngles.y -= prePY;
-        }
-
-        ClampAngles(sendAngles);
-        Memory::Write(vaAddr, &sendAngles, sizeof(sendAngles));
-    }
-
-    // === CALL ORIGINAL (server sees sendAngles) ===
     if (!SafeCallOriginal(pThis, nSlot, t, active)) {
         CreateMoveHook::Uninstall();
-        _beginthreadex(nullptr, 0, [](void*) -> unsigned {
-            Sleep(2000);
-            if (g_candidateIdx < (int)g_candidates.size())
-                CreateMoveHook::InstallAt(g_candidates[g_candidateIdx++]);
-            return 0;
-        }, nullptr, 0, nullptr);
         return;
     }
 
-    // === POST-ORIGINAL ===
-    if (ready) {
-        // Restore real angles so the player's screen doesn't move
-        // (silent aim: bullet went to sendAngles, player sees realAngles)
-        Memory::Write(vaAddr, &realAngles, sizeof(realAngles));
+    if (g_cmCallCnt < 64 || !active) return;
 
-        // Apply recoil punch delta to real angles so crosshair stays on target
-        if (cfg->m_noRecoil && punchSvc) {
-            float postPX = CS2::Read<float>(punchSvc + 0x48);
-            float postPY = CS2::Read<float>(punchSvc + 0x4C);
-            float dX = postPX - prePX, dY = postPY - prePY;
-            if (fabsf(dX) > 0.001f || fabsf(dY) > 0.001f) {
-                Vector3 va = CS2::Read<Vector3>(vaAddr);
-                va.x -= dX; va.y -= dY;
-                ClampAngles(va);
-                Memory::Write(vaAddr, &va, sizeof(va));
-            }
+    uintptr_t lpa = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t lp  = lpa ? CS2::Read<uintptr_t>(lpa) : 0;
+    Config*   cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
+    if (!lp || !cfg) return;
+
+    // No-recoil: zero punch position + velocity post-original
+    if (cfg->m_noRecoil) {
+        uintptr_t pSvc = CS2::Read<uintptr_t>(lp + 0x1490);
+        if (pSvc) {
+            float z = 0.f;
+            for (uintptr_t off = 0x48; off <= 0x60; off += 4)
+                Memory::Write(pSvc + off, &z, 4);
         }
-
-        if (cfg->m_bunnyhop) DoBhop(lp, nullptr);
-
-        // Release dwForceAttack if ragebot no longer wants to fire
-        if (!g_rbWantFire && !g_rbHasTarget) {
-            uintptr_t fa = Offsets::Get("dwForceAttack");
-            if (fa) { int v = 256; Memory::Write(fa, &v, sizeof(v)); }
-        }
-        g_rbWantFire = false;  // clear per-tick fire flag
     }
+
+    if (cfg->m_bunnyhop) DoBhop(lp, nullptr);
 }
 
 bool CreateMoveHook::Install() {

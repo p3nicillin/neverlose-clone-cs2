@@ -21,6 +21,7 @@
 #include "logger.h"
 #include "config.h"
 #include "cheat_core.h"
+#include "ui_manager.h"
 #include <cmath>
 
 #ifndef M_PI
@@ -106,6 +107,8 @@ static bool EdgeAdjust(uintptr_t pawn, float& yawOut) {
 void AntiAim::Apply(CUserCmd* /*cmd*/, bool& sendPacket) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_antiaimEnabled) return;
+    // Never interfere when menu is open
+    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) return;
 
     // Sync UI settings into members (keeps GetFakeAngle()/etc. coherent)
     m_mode            = cfg->m_antiaimMode;
