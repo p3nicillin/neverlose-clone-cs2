@@ -243,9 +243,29 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         Vector3 pos = CS2::GetAbsOrigin(pawn);
         if (pos.x == 0.f && pos.y == 0.f) continue;
 
-        // Candidate aim points: head, then pelvis/stomach (baim fallback)
-        Vector3 head    = { pos.x, pos.y, pos.z + 64.f };
-        Vector3 pelvis  = { pos.x, pos.y, pos.z + 22.f };
+        // Try to get actual head bone position (bone 6 = head in CS2 player model).
+        // Fall back to origin + height estimate if bone data unavailable.
+        // Detect crouch: m_bDucked at pawn+0x1440 (reduces standing height by ~24 units)
+        bool crouching = CS2::Read<bool>(pawn + 0x415) || CS2::Read<bool>(pawn + 0x416);
+        float standHeight  = crouching ? 45.f : 64.f;   // crouch lowers head ~19 units
+        float pelvisHeight = crouching ? 10.f : 22.f;
+
+        Vector3 head   = { pos.x, pos.y, pos.z + standHeight };
+        Vector3 pelvis = { pos.x, pos.y, pos.z + pelvisHeight };
+
+        // Use actual bone position if available (much more accurate)
+        uintptr_t boneArr = CS2::GetBoneArray(pawn);
+        if (boneArr) {
+            Vector3 headBone   = CS2::GetBonePos(boneArr, 6);  // CS2 head bone = 6
+            Vector3 pelvisBone = CS2::GetBonePos(boneArr, 0);  // CS2 pelvis = 0
+            // Validate: bone must be near the entity origin (within 200 units)
+            auto nearOrigin = [&](const Vector3& b) {
+                float dx=b.x-pos.x, dy=b.y-pos.y, dz=b.z-pos.z;
+                return sqrtf(dx*dx+dy*dy+dz*dz) < 200.f && b.x!=0.f;
+            };
+            if (nearOrigin(headBone))   head   = headBone;
+            if (nearOrigin(pelvisBone)) pelvis = pelvisBone;
+        }
 
         // Backtrack: if enabled, prefer an historical head position
         if (cfg && cfg->m_ragebotBacktrack) {
