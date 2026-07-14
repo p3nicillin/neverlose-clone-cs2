@@ -33,6 +33,15 @@
 static const float RAD = (float)(M_PI / 180.0);
 static bool g_rageMouseDown = false;
 
+static void ReleaseRageMouse() {
+    if (!g_rageMouseDown) return;
+    INPUT up{};
+    up.type = INPUT_MOUSE;
+    up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+    SendInput(1, &up, sizeof(up));
+    g_rageMouseDown = false;
+}
+
 static Vector3 CalcAngle(const Vector3& src, const Vector3& dst) {
     float dx=dst.x-src.x, dy=dst.y-src.y, dz=dst.z-src.z;
     float h2d = sqrtf(dx*dx+dy*dy);
@@ -318,14 +327,13 @@ void Ragebot::Run(CUserCmd*) {
     const DWORD nowDiag = GetTickCount();
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_ragebotEnabled) {
+        ReleaseRageMouse();
         CreateMoveHook::ClearRagebotAim();
         m_firing = false; return;
     }
     if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) {
         if (g_rageMouseDown) {
-            INPUT up{}; up.type = INPUT_MOUSE; up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-            SendInput(1, &up, sizeof(up));
-            g_rageMouseDown = false;
+            ReleaseRageMouse();
         }
         CreateMoveHook::ClearRagebotAim(); return;
     }
@@ -342,7 +350,11 @@ void Ragebot::Run(CUserCmd*) {
     uintptr_t list = CS2::Read<uintptr_t>(listAddr);
     if (!lp || !lc || !list) return;
 
-    if (CS2::GetHealth(lp) <= 0) { CreateMoveHook::ClearRagebotAim(); return; }
+    if (CS2::GetHealth(lp) <= 0) {
+        ReleaseRageMouse();
+        CreateMoveHook::ClearRagebotAim();
+        return;
+    }
 
     // Update backtracking records for all enemies
     UpdateRecords(list, lc);
@@ -359,7 +371,8 @@ void Ragebot::Run(CUserCmd*) {
     // Call premium Target Selector
     Target target = SelectTarget(list, lc, lp, eye, va, myTeam);
 
-    if (nowDiag - lastDiag > 2000) {
+    const bool shouldDiag = nowDiag - lastDiag > 2000;
+    if (shouldDiag) {
         Logger::Log("Rage state: lp=%p team=%d target=%p fov=%.2f cm=%s",
                     (void*)lp, myTeam, (void*)target.pawn, target.fov,
                     CreateMoveHook::IsActive() ? "active" : "inactive");
@@ -367,11 +380,17 @@ void Ragebot::Run(CUserCmd*) {
     }
 
     if (!target.valid) {
+        ReleaseRageMouse();
         CreateMoveHook::ClearRagebotAim();
         m_firing = false; m_lastTarget = 0; return;
     }
 
     Vector3 bestAim = ::CalcAngle(eye, target.aimPoint);
+    if (shouldDiag) {
+        Logger::Log("Rage aim: view=(%.1f,%.1f) aim=(%.1f,%.1f) point=(%.1f,%.1f,%.1f)",
+                    va.x, va.y, bestAim.x, bestAim.y,
+                    target.aimPoint.x, target.aimPoint.y, target.aimPoint.z);
+    }
     if (cfg->m_ragebotNoRecoil) {
         uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
         if (punchSvc) {
