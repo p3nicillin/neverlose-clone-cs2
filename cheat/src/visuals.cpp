@@ -234,6 +234,23 @@ void Visuals::Render() {
         float x1 = scrTop.x + w/2.f;
         float y1 = scrFeet.y;
 
+        // Overlay-backed glow/chams approximation. This keeps the feature
+        // functional without relying on unstable material-system vtables.
+        if (cfg->m_chamsEnabled && (pi.isEnemy ? cfg->m_chamsVisible : cfg->m_espTeammates)) {
+            ImColor fill = pi.isEnemy ? cfg->m_chamsVisibleColor : ImColor(80, 160, 255, 80);
+            ImVec4 fv = fill.Value;
+            fv.w *= 0.18f;
+            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1),
+                              ImGui::ColorConvertFloat4ToU32(fv), 2.f);
+        }
+        if (cfg->m_glowEnabled) {
+            ImVec4 gv = cfg->m_glowColor.Value;
+            gv.w = cfg->m_glowAlpha * 0.35f;
+            ImU32 glow = ImGui::ColorConvertFloat4ToU32(gv);
+            for (int g = 1; g <= 3; ++g)
+                dl->AddRect(ImVec2(x0 - g, y0 - g), ImVec2(x1 + g, y1 + g), glow, 2.f);
+        }
+
         // ---- Box ----
         if (cfg->m_espBox) {
             // Corner box style (like neverlose.cc)
