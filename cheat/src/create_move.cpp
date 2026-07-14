@@ -96,17 +96,6 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
 static void ApplyAngle(void* pInput, const Vector3& angle) {
     uintptr_t inp = (uintptr_t)pInput;
     Vector3 compensated = angle;
-    Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-    if (cfg && cfg->m_ragebotNoRecoil) {
-        uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
-        uintptr_t lp = lpAddr ? CS2::Read<uintptr_t>(lpAddr) : 0;
-        uintptr_t punch = lp ? CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x1490)) : 0;
-        if (punch) {
-            compensated.x -= CS2::Read<float>(punch + Offsets::Get("m_vecCsViewPunchAngle", 0x48));
-            compensated.y -= CS2::Read<float>(punch + Offsets::Get("m_vecCsViewPunchAngle", 0x48) + 4);
-        }
-    }
-
     // 1. CCSGOInput::angViewAngles — this IS what CS2 uses for bullet direction
     Memory::Write(inp + 0x0BE0, (void*)&compensated, sizeof(Vector3));
 
@@ -151,7 +140,7 @@ static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
 
     Vector3 view = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
     view.x -= pitch;
-    view.y -= yaw;
+    view.y += yaw;
     while (view.y > 180.f) view.y -= 360.f;
     while (view.y < -180.f) view.y += 360.f;
     if (view.x > 89.f) view.x = 89.f;
@@ -165,7 +154,7 @@ static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
     if (globalAngles) {
         Vector3 global = CS2::Read<Vector3>(globalAngles);
         global.x -= pitch;
-        global.y -= yaw;
+        global.y += yaw;
         global.z = 0.f;
         Memory::Write(globalAngles, &global, sizeof(global));
     }

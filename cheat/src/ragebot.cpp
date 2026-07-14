@@ -383,6 +383,15 @@ void Ragebot::Run(CUserCmd*) {
     }
 
     Vector3 bestAim = ::CalcAngle(eye, target.aimPoint);
+    if (cfg->m_ragebotNoRecoil) {
+        uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
+        if (punchSvc) {
+            uintptr_t po = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
+            bestAim.x -= CS2::Read<float>(punchSvc + po);
+            bestAim.y += CS2::Read<float>(punchSvc + po + 4);
+            bestAim = NormAngles(bestAim);
+        }
+    }
 
     // ---- Auto-scope ----
     if (cfg->m_ragebotQuickScope && IsSniper(list, lp)) {
