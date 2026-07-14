@@ -276,11 +276,16 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         aimPoint.z += 72.f; // Fallback
         bool useBaim = false;
 
-        // Baseline rage aim uses the current head only. Backtrack and
-        // multipoint are intentionally deferred until this path is stable.
-        // Bone indices vary across current bot/player models. Use the
-        // stable upper-body/head-height point for baseline rage aim.
+        // Use the stable upper-body/head-height point as the fallback because
+        // bone indices vary across current bot/player models. When a recent
+        // record is available, prefer it: this makes the existing backtrack
+        // setting affect the actual aim point instead of only collecting data.
         aimPoint.z = pos.z + 64.f;
+        if (cfg->m_ragebotBacktrack) {
+            Vector3 historical{};
+            if (GetBacktrackPoint(i, cfg->m_ragebotBacktrackTime, historical))
+                aimPoint = historical;
+        }
 
         // Baseline rage selection must not be blocked by approximate trace,
         // hitchance, damage, or resolver data. Those are optional refinements

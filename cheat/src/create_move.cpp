@@ -37,6 +37,8 @@
 #include <windows.h>
 #include <cmath>
 #include <process.h>
+#include <mutex>
+#include <shared_mutex>
 
 bool CreateMoveHook::s_installed = false;
 
@@ -46,27 +48,57 @@ static uint8_t   g_origBytes[14] = {};
 static uint8_t   g_jmpBytes[14]  = {};
 static volatile int  g_cmCalls = 0;
 
-// Shared state: set by CheatThread, consumed by CreateMove
-static volatile bool g_rbHasTarget = false;
-static volatile bool g_rbWantFire  = false;
-static Vector3       g_rbAimAngle  = {};
-static volatile bool g_aaActive    = false;
-static Vector3       g_aaFakeAngle = {};
+// Shared state: set by CheatThread, consumed by CreateMove. The hook and the
+// worker run concurrently; volatile alone does not make the Vector3 writes
+// safe (and can expose a torn pitch/yaw pair to the game).
+static std::shared_mutex g_stateLock;
+static bool    g_rbHasTarget = false;
+static bool    g_rbWantFire  = false;
+static Vector3 g_rbAimAngle  = {};
+static bool    g_aaActive    = false;
+static Vector3 g_aaFakeAngle = {};
+
+static bool ValidAngle(const Vector3& a) {
+    return std::isfinite(a.x) && std::isfinite(a.y) && std::isfinite(a.z) &&
+           a.x >= -89.0f && a.x <= 89.0f &&
+           a.y >= -180.0f && a.y <= 180.0f;
+}
 
 void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire) {
+    if (!ValidAngle(angle)) { ClearRagebotAim(); return; }
+    std::unique_lock lock(g_stateLock);
     g_rbAimAngle  = angle;
     g_rbHasTarget = true;
     g_rbWantFire  = fire;
 }
 void CreateMoveHook::ClearRagebotAim() {
+    std::unique_lock lock(g_stateLock);
     g_rbHasTarget = false;
     g_rbWantFire  = false;
 }
 void CreateMoveHook::SetAntiAim(const Vector3& angle) {
+    if (!ValidAngle(angle)) { ClearAntiAim(); return; }
+    std::unique_lock lock(g_stateLock);
     g_aaFakeAngle = angle;
     g_aaActive    = true;
 }
-void CreateMoveHook::ClearAntiAim() { g_aaActive = false; }
+void CreateMoveHook::ClearAntiAim() {
+    std::unique_lock lock(g_stateLock);
+    g_aaActive = false;
+}
+
+struct CreateMoveState {
+    bool rbHasTarget;
+    bool rbWantFire;
+    Vector3 rbAimAngle;
+    bool aaActive;
+    Vector3 aaFakeAngle;
+};
+
+static CreateMoveState SnapshotState() {
+    std::shared_lock lock(g_stateLock);
+    return {g_rbHasTarget, g_rbWantFire, g_rbAimAngle, g_aaActive, g_aaFakeAngle};
+}
 
 // ---- Trampoline helpers ----
 using CreateMoveFn = void(__fastcall*)(void*, int, float, bool);
@@ -184,14 +216,15 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
     // -- PRE-ORIGINAL: set angle and fire flag in CCSGOInput --
     if (ready) {
+        const CreateMoveState state = SnapshotState();
         if (cfg->m_ragebotNoRecoil)
             ApplyRageRecoilToInput(pThis, lp);
-        if (g_rbHasTarget) {
-            ApplyAngle(pThis, g_rbAimAngle);
-            if (g_rbWantFire)
+        if (state.rbHasTarget) {
+            ApplyAngle(pThis, state.rbAimAngle);
+            if (state.rbWantFire)
                 SetAttack(pThis, true);
-        } else if (g_aaActive && cfg->m_antiaimEnabled) {
-            ApplyAngle(pThis, g_aaFakeAngle);
+        } else if (state.aaActive && cfg->m_antiaimEnabled) {
+            ApplyAngle(pThis, state.aaFakeAngle);
         }
     }
 
@@ -283,9 +316,8 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         }
 
         // Clear fire flag for next tick if ragebot didn't request it again
-        if (!g_rbWantFire)
+        if (!SnapshotState().rbWantFire)
             SetAttack(pThis, false);
-        g_rbWantFire = false;
 
         // Third-person via CCSGOInput + 0x0A51 (Axion-confirmed)
         if (cfg->m_thirdPerson) {
