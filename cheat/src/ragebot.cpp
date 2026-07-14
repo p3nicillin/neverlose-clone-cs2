@@ -299,24 +299,10 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
             }
         }
 
-        // Apply Resolver on aimPoint yaw
-        Vector3 targetAng = ::CalcAngle(eyePos, aimPoint);
-        float resolvedYaw = ResolveYaw(i, targetAng.y);
-        targetAng.y = resolvedYaw;
-
-        // Check visibility
-        if (!IsVisible(entityList, pawn, eyePos, aimPoint)) continue;
-
-        // Hitchance gate
-        float hc = EstimateHitchance(::CalcFov(viewAng, targetAng), dist, isLocalMoving);
-        if (hc < cfg->m_ragebotHitchance) continue;
-
-        // Min damage gate
-        int armor = CS2::Read<int>(pawn + Offsets::Get("m_ArmorValue", 0xEB0));
-        float dmg = EstimateDamage(dist, armor);
-        if (dmg < cfg->m_ragebotMinDamage) continue;
-
-        float fov = ::CalcFov(viewAng, targetAng);
+        // Baseline rage selection must not be blocked by approximate trace,
+        // hitchance, damage, or resolver data. Those are optional refinements
+        // and are applied only after a valid target is selected.
+        float fov = ::CalcFov(viewAng, ::CalcAngle(eyePos, aimPoint));
         if (fov < bestFov) {
             bestFov = fov;
             bestTarget.pawn = pawn;
