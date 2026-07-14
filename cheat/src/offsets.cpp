@@ -172,12 +172,13 @@ bool Offsets::Initialize() {
             if (g_Offsets.count(k)) {
                 // If the dumper value is a reasonable RVA (< 0x10000000), add base
                 uintptr_t stored = (v < 0x10000000 && v > 0x10000) ? base + v : v;
-                g_Offsets[k] = stored;
-                ++updated;
-            } else {
-                // New key — if large value treat as absolute, small as struct offset
-                g_Offsets[k] = v;
-                ++updated;
+                // Only update keys already used by this build. This prevents
+                // similarly named fields from unrelated schema classes from
+                // polluting the runtime table.
+                if (stored != 0 && (stored > base || v < 0x10000)) {
+                    g_Offsets[k] = stored;
+                    ++updated;
+                }
             }
         }
         Logger::Log("Offsets: cs2-dumper updated " + std::to_string(updated) + " offsets");

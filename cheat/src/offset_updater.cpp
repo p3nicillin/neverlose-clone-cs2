@@ -108,9 +108,17 @@ static void ExtractAllInts(const std::string& json,
 
         if (isdigit((unsigned char)json[p2])) {
             size_t numStart = p2;
-            while (p2 < json.size() && isdigit((unsigned char)json[p2])) ++p2;
+            bool hex = p2 + 1 < json.size() && json[p2] == '0' &&
+                       (json[p2 + 1] == 'x' || json[p2 + 1] == 'X');
+            if (hex) {
+                p2 += 2;
+                while (p2 < json.size() && isxdigit((unsigned char)json[p2])) ++p2;
+            } else {
+                while (p2 < json.size() && isdigit((unsigned char)json[p2])) ++p2;
+            }
             try {
-                uintptr_t val = (uintptr_t)std::stoull(json.substr(numStart, p2 - numStart));
+                uintptr_t val = (uintptr_t)std::stoull(
+                    json.substr(numStart, p2 - numStart), nullptr, hex ? 16 : 10);
                 if (!key.empty() && key.front() != '/') // skip comments
                     out[key] = val;
             } catch (...) {}
