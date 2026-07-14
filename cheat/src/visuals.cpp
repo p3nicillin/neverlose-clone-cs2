@@ -134,6 +134,9 @@ void Visuals::Render() {
     Vector3 localOrigin = CS2::GetAbsOrigin(localPawn);
 
     Matrix4x4 vm = CS2::GetViewMatrix();
+    const ImVec2 display = ImGui::GetIO().DisplaySize;
+    const int screenW = display.x > 1.0f ? static_cast<int>(display.x) : 1920;
+    const int screenH = display.y > 1.0f ? static_cast<int>(display.y) : 1080;
 
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
@@ -155,6 +158,7 @@ void Visuals::Render() {
         if (!isEnemy && !cfg->m_espTeammates) continue;
 
         Vector3 origin = CS2::GetAbsOrigin(pawn);
+        if (!std::isfinite(origin.x) || !std::isfinite(origin.y) || !std::isfinite(origin.z)) continue;
         if (origin.x == 0.f && origin.y == 0.f && origin.z == 0.f) continue;
 
         // ---- Bone positions ----
@@ -165,8 +169,8 @@ void Visuals::Render() {
         pi.team    = team;
         pi.isEnemy = isEnemy;
         pi.origin  = origin;
-        pi.armor   = CS2::Read<int>(pawn + 0xEB0); // m_ArmorValue approx
-        pi.scoped  = CS2::Read<bool>(pawn + 0x1428); // m_bIsScoped fallback
+        pi.armor   = CS2::Read<int>(pawn + Offsets::Get("m_ArmorValue", 0xEB0));
+        pi.scoped  = CS2::Read<bool>(pawn + Offsets::Get("m_bIsScoped", 0x1C50));
         pi.bonesValid = false;
 
         uintptr_t boneArr = CS2::GetBoneArray(pawn);
@@ -176,7 +180,9 @@ void Visuals::Render() {
             for (int b = 0; b <= kMaxBone; ++b)
                 pi.bones[b] = CS2::GetBonePos(boneArr, b);
             // Bone 5 = head in standard CS2 model
-            if (pi.bones[5].x != 0.f || pi.bones[5].y != 0.f)
+            if (std::isfinite(pi.bones[5].x) && std::isfinite(pi.bones[5].y) &&
+                std::isfinite(pi.bones[5].z) &&
+                (pi.bones[5].x != 0.f || pi.bones[5].y != 0.f || pi.bones[5].z != 0.f))
                 headPos = pi.bones[5];
         }
         pi.head = headPos;
@@ -184,9 +190,9 @@ void Visuals::Render() {
         // ---- World to screen ----
         Vector3 topPos = { headPos.x, headPos.y, headPos.z + 8.f };
         Vector2 scrFeet, scrHead, scrTop;
-        if (!Utils::WorldToScreen(origin,  scrFeet, vm)) continue;
-        if (!Utils::WorldToScreen(headPos, scrHead, vm)) continue;
-        Utils::WorldToScreen(topPos, scrTop, vm);
+        if (!Utils::WorldToScreen(origin,  scrFeet, vm, screenW, screenH)) continue;
+        if (!Utils::WorldToScreen(headPos, scrHead, vm, screenW, screenH)) continue;
+        if (!Utils::WorldToScreen(topPos, scrTop, vm, screenW, screenH)) continue;
 
         float h = scrFeet.y - scrTop.y;
         if (h < 5.f) continue; // offscreen / too small
@@ -308,8 +314,8 @@ void Visuals::Render() {
                 Vector3& wc = pi.bones[ch];
                 if ((wp.x == 0.f && wp.y == 0.f) || (wc.x == 0.f && wc.y == 0.f)) continue;
                 Vector2 sp, sc;
-                if (!Utils::WorldToScreen(wp, sp, vm)) continue;
-                if (!Utils::WorldToScreen(wc, sc, vm)) continue;
+                if (!Utils::WorldToScreen(wp, sp, vm, screenW, screenH)) continue;
+                if (!Utils::WorldToScreen(wc, sc, vm, screenW, screenH)) continue;
                 dl->AddLine(ImVec2(sp.x,sp.y), ImVec2(sc.x,sc.y), skCol, 1.f);
             }
         }
