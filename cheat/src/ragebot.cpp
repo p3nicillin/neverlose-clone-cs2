@@ -31,6 +31,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 static const float RAD = (float)(M_PI / 180.0);
+static bool g_rageMouseDown = false;
 
 static Vector3 CalcAngle(const Vector3& src, const Vector3& dst) {
     float dx=dst.x-src.x, dy=dst.y-src.y, dz=dst.z-src.z;
@@ -277,13 +278,9 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
 
         // Baseline rage aim uses the current head only. Backtrack and
         // multipoint are intentionally deferred until this path is stable.
-        uintptr_t bones = CS2::GetBoneArray(pawn);
-        if (bones) {
-            Vector3 hb = CS2::GetBonePos(bones, 5);
-            if (std::isfinite(hb.x) && std::isfinite(hb.y) && std::isfinite(hb.z) &&
-                hb.z > pos.z + 30.f && hb.z < pos.z + 110.f)
-                aimPoint = hb;
-        }
+        // Bone indices vary across current bot/player models. Use the
+        // stable upper-body/head-height point for baseline rage aim.
+        aimPoint.z = pos.z + 64.f;
 
         // Baseline rage selection must not be blocked by approximate trace,
         // hitchance, damage, or resolver data. Those are optional refinements
@@ -317,6 +314,11 @@ void Ragebot::Run(CUserCmd*) {
         m_firing = false; return;
     }
     if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) {
+        if (g_rageMouseDown) {
+            INPUT up{}; up.type = INPUT_MOUSE; up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            SendInput(1, &up, sizeof(up));
+            g_rageMouseDown = false;
+        }
         CreateMoveHook::ClearRagebotAim(); return;
     }
     if (!GetForegroundWindow()) return;
@@ -402,22 +404,21 @@ void Ragebot::Run(CUserCmd*) {
     // consume the pending shared state.
     uintptr_t vaWrite = Offsets::Get("dwViewAngles");
     if (vaWrite) Memory::Write(vaWrite, &bestAim, sizeof(bestAim));
-    static bool mouseDown = false;
     if (wantFire) {
-        if (!mouseDown) {
+        if (!g_rageMouseDown) {
             INPUT inp{};
             inp.type = INPUT_MOUSE;
             inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
             SendInput(1, &inp, sizeof(inp));
-            mouseDown = true;
+            g_rageMouseDown = true;
         }
     } else {
-        if (mouseDown) {
+        if (g_rageMouseDown) {
             INPUT inp{};
             inp.type = INPUT_MOUSE;
             inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
             SendInput(1, &inp, sizeof(inp));
-            mouseDown = false;
+            g_rageMouseDown = false;
         }
     }
     m_lastTarget = target.pawn;
