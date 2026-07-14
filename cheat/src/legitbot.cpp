@@ -163,7 +163,7 @@ bool Legitbot::IsOnGround() {
     uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
     if (!localPawn) return false;
     // m_fFlags at pawn+0x3F8 (CS2 confirmed)
-    uint32_t flags = CS2::Read<uint32_t>(localPawn + 0x3F8);
+    uint32_t flags = CS2::Read<uint32_t>(localPawn + Offsets::Get("m_fFlags", 0x3F8));
     return (flags & 1) != 0; // FL_ONGROUND
 }
 
@@ -290,4 +290,4 @@ Vector3 Legitbot::GetLocalVelocity() {
     if (!localPawn) return Vector3(0, 0, 0);
     // m_vecVelocity at pawn+0x3F4 (CS2 confirmed)
     return CS2::Read<Vector3>(localPawn + Offsets::Get("m_vecVelocity", 0x3F4));
-}
+}

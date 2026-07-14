@@ -146,6 +146,7 @@ public:
     // Active misc features
     bool m_bunnyhop;
     bool m_noRecoil;
+    bool m_noSpread;
     bool m_noFlash;
     bool m_autoStrafe;
     bool m_thirdPerson;

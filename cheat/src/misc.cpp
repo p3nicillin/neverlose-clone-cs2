@@ -42,7 +42,7 @@ void Misc::Update() {
     // ---- No recoil + No spread ----
     // Punch zeroing is handled in CreateMove (post-original, with velocity zeroed).
     // Only do weapon field zeroing here as a backup at 1000Hz.
-    if (cfg->m_noRecoil && !CreateMoveHook::IsActive()) {
+    if ((cfg->m_noRecoil || cfg->m_noSpread) && !CreateMoveHook::IsActive()) {
         // Fallback: if CreateMove hook not active, zero punch here
         uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
         if (punchSvc) {
@@ -63,8 +63,8 @@ void Misc::Update() {
             uintptr_t weapon     = weapHandle ? CS2::HandleToPtr(entityList, weapHandle) : 0;
             if (weapon) {
                 float z = 0.f;
-                Memory::Write(weapon + 0x17E0, &z, 4);
-                Memory::Write(weapon + 0x17D0, &z, 4);
+                if (cfg->m_noRecoil) Memory::Write(weapon + 0x17E0, &z, 4);
+                if (cfg->m_noSpread) Memory::Write(weapon + 0x17D0, &z, 4);
             }
         }
     }
@@ -129,7 +129,7 @@ void Misc::Update() {
 
     // ---- Auto-strafe ----
     if (cfg->m_autoStrafe) {
-        uint32_t flags = CS2::Read<uint32_t>(localPawn + 0x3F8);
+        uint32_t flags = CS2::Read<uint32_t>(localPawn + Offsets::Get("m_fFlags", 0x3F8));
         bool inAir = !(flags & 1);
         if (inAir) {
             POINT cur; GetCursorPos(&cur);

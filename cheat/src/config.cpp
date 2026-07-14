@@ -191,6 +191,7 @@ void Config::LoadDefaultConfig() {
 
     m_bunnyhop   = false;
     m_noRecoil   = false;
+    m_noSpread   = false;
     m_noFlash    = false;
     m_autoStrafe = false;
     m_thirdPerson     = false;
@@ -338,6 +339,13 @@ bool Config::Save(const std::string& name) {
         j["misc"]["message_filter"] = m_messageFilter;
         j["misc"]["auto_pistol"] = m_autoPistol;
         j["misc"]["auto_reload"] = m_autoReload;
+        j["misc"]["bunnyhop"] = m_bunnyhop;
+        j["misc"]["no_recoil"] = m_noRecoil;
+        j["misc"]["no_spread"] = m_noSpread;
+        j["misc"]["no_flash"] = m_noFlash;
+        j["misc"]["auto_strafe"] = m_autoStrafe;
+        j["misc"]["third_person"] = m_thirdPerson;
+        j["misc"]["third_person_dist"] = m_thirdPersonDist;
 
         // Write to file
         std::string path = "neverlose_configs/" + name + ".json";
@@ -531,6 +539,13 @@ bool Config::Load(const std::string& name) {
             if (m.contains("message_filter")) m_messageFilter = m["message_filter"];
             if (m.contains("auto_pistol")) m_autoPistol = m["auto_pistol"];
             if (m.contains("auto_reload")) m_autoReload = m["auto_reload"];
+            if (m.contains("bunnyhop")) m_bunnyhop = m["bunnyhop"];
+            if (m.contains("no_recoil")) m_noRecoil = m["no_recoil"];
+            if (m.contains("no_spread")) m_noSpread = m["no_spread"];
+            if (m.contains("no_flash")) m_noFlash = m["no_flash"];
+            if (m.contains("auto_strafe")) m_autoStrafe = m["auto_strafe"];
+            if (m.contains("third_person")) m_thirdPerson = m["third_person"];
+            if (m.contains("third_person_dist")) m_thirdPersonDist = m["third_person_dist"];
         }
 
         m_currentConfig = name;

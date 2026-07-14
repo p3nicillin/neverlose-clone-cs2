@@ -301,7 +301,7 @@ void Visuals::Render() {
                 fy += 13.f;
             };
             if (pi.scoped) addFlag("SCOPED", IM_COL32(0,220,255,255));
-            uint32_t flags = CS2::Read<uint32_t>(pawn + 0x3F8);
+            uint32_t flags = CS2::Read<uint32_t>(pawn + Offsets::Get("m_fFlags", 0x3F8));
             if (!(flags&1)) addFlag("AIR", IM_COL32(255,220,80,255));
             bool reloading = CS2::Read<bool>(pawn + 0x1468); // rough offset
             if (reloading) addFlag("RELOAD", IM_COL32(255,140,0,255));

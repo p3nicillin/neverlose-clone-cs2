@@ -133,7 +133,7 @@ void AntiAim::Apply(CUserCmd* /*cmd*/, bool& sendPacket) {
     if (CS2::GetHealth(pawn) <= 0) return;
 
     // Ground/air conditions
-    uint32_t flags = CS2::Read<uint32_t>(pawn + 0x3F8);
+    uint32_t flags = CS2::Read<uint32_t>(pawn + Offsets::Get("m_fFlags", 0x3F8));
     bool onGround = (flags & 1) != 0;
     if (!m_onAir   && !onGround) return;
     if (!m_onGround && onGround) return;

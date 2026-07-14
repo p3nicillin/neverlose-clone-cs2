@@ -176,9 +176,19 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             }
         }
 
+        if (cfg->m_noSpread) {
+            uintptr_t listAddr = Offsets::Get("dwEntityList");
+            uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+            uintptr_t weapon = entityList ? CS2::GetActiveWeapon(entityList, lp) : 0;
+            if (weapon) {
+                float zero = 0.f;
+                Memory::Write(weapon + 0x17D0, &zero, sizeof(zero));
+            }
+        }
+
         // Bhop
         if (cfg->m_bunnyhop && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
-            uint32_t flags = CS2::Read<uint32_t>(lp + 0x3F8);
+            uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F8));
             if (flags & 1) { // on ground
                 uintptr_t fjAddr = Offsets::Get("dwForceJump");
                 if (fjAddr) { int v = 65537; Memory::Write(fjAddr, &v, 4); }
@@ -187,7 +197,7 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
         // Auto-strafe
         if (cfg->m_autoStrafe) {
-            uint32_t flags = CS2::Read<uint32_t>(lp + 0x3F8);
+            uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F8));
             if (!(flags & 1)) { // in air
                 POINT cur; GetCursorPos(&cur);
                 static POINT last = cur;

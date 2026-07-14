@@ -449,8 +449,9 @@ void UIManager::RenderMiscTab() {
     ImGui::Spacing();
     ImGui::Text("Combat");
     ImGui::Separator();
-    ImGui::Checkbox("No Recoil / No Spread", &config->m_noRecoil);
-    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1),"Zeroes punch+spray+accuracy");
+    ImGui::Checkbox("No Recoil", &config->m_noRecoil);
+    ImGui::Checkbox("No Spread", &config->m_noSpread);
+    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1),"Separate recoil and spread controls");
     ImGui::Spacing();
     ImGui::Text("Utility");
     ImGui::Separator();

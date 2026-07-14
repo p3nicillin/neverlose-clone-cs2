@@ -62,6 +62,7 @@ static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
     { "m_AttributeManager",         0x370  },
     // Ragebot / anti-aim / third-person fallbacks (update via offsets.json/cs2-dumper)
     { "m_vecVelocity",              0x3F4  },  // CBaseEntity m_vecVelocity (approx)
+    { "m_fFlags",                   0x3F8  },
     { "m_pObserverServices",        0x1518 },  // CCSPlayerPawn -> observer services ptr
     { "m_iObserverMode",            0x40   },  // within CPlayer_ObserverServices
     { "m_flObserverChaseDistance",  0x50   },  // within CPlayer_ObserverServices
