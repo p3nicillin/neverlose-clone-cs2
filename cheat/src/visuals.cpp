@@ -134,7 +134,7 @@ void Visuals::Render() {
     uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
     if (!localCtrl || !localPawn || !entityList) return;
 
-    int localTeam = CS2::GetTeam(localCtrl);
+    int localTeam = CS2::GetTeam(localPawn);
     Vector3 localOrigin = CS2::GetAbsOrigin(localPawn);
 
     Matrix4x4 vm = CS2::GetViewMatrix();
@@ -156,7 +156,9 @@ void Visuals::Render() {
         if (hp <= 0 || hp > 100) continue;
         if (CS2::GetLife(pawn) != 0) continue; // alive = 0
 
-        int team = CS2::GetTeam(ctrl);
+        // Team membership is stored on the pawn for current CS2 builds;
+        // controller values may be unset for bots and deathmatch players.
+        int team = CS2::GetTeam(pawn);
         if (team != 2 && team != 3) continue;
         bool isEnemy = (team != localTeam);
         if (!isEnemy && !cfg->m_espTeammates) continue;
@@ -174,7 +176,7 @@ void Visuals::Render() {
         pi.isEnemy = isEnemy;
         pi.origin  = origin;
         pi.armor   = CS2::Read<int>(pawn + Offsets::Get("m_ArmorValue", 0xEB0));
-        pi.scoped  = CS2::Read<bool>(pawn + Offsets::Get("m_bIsScoped", 0x1C50));
+        pi.scoped  = CS2::Read<bool>(pawn + Offsets::Get("m_bIsScoped", 0x1C70));
         pi.bonesValid = false;
 
         uintptr_t boneArr = CS2::GetBoneArray(pawn);
@@ -505,7 +507,7 @@ void Visuals::RenderRadar() {
     float dy = sinf(angleRad) * 10.f;
     dl->AddLine(ImVec2(rx + rCenter, ry + rCenter), ImVec2(rx + rCenter + dx, ry + rCenter - dy), IM_COL32(0, 200, 255, 255), 1.5f);
 
-    int localTeam = CS2::GetTeam(localCtrl);
+    int localTeam = CS2::GetTeam(localPawn);
 
     // Enumerate players and map relative coordinates
     for (int i = 1; i <= 64; ++i) {
@@ -518,7 +520,7 @@ void Visuals::RenderRadar() {
         int hp = CS2::GetHealth(pawn);
         if (hp <= 0 || hp > 100) continue;
 
-        int team = CS2::GetTeam(ctrl);
+        int team = CS2::GetTeam(pawn);
         bool isEnemy = (team != localTeam);
 
         Vector3 pos = CS2::GetAbsOrigin(pawn);
