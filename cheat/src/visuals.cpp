@@ -325,49 +325,39 @@ void Visuals::Render() {
     // ---- Hit markers ----
     if (cfg->m_hitMarker) RenderHitMarkers();
 
-    // ---- Bomb timer (placeholder) ----
+    // ---- Bomb timer ----
     if (cfg->m_bombTimer) RenderBombTimer();
 
     // ---- Spectator list ----
     if (cfg->m_spectatorList) RenderSpectatorList();
+
+    // ---- Radar ----
+    if (cfg->m_radar) RenderRadar();
 }
-
-// old Render() entry (no-op; actual work done in the new Render() above)
-void Visuals::RenderESP() {}
-void Visuals::RenderChams() {}
-void Visuals::RenderGlow() {}
-void Visuals::RenderGrenadePrediction() {}
-void Visuals::RenderDefuseTimer() {}
-void Visuals::RenderDamageIndicator() {}
-void Visuals::RenderRadar() {}
-void Visuals::RenderKillFeed() {}
-
-void Visuals::RenderSkeleton(uintptr_t, const Matrix4x4&, ImColor) {}
-void Visuals::RenderFlags(uintptr_t, const Vector2&, float, ImColor) {}
 
 void Visuals::RenderHitMarkers() {
     static std::vector<HitMarker> s_markers;
-    // merge pending markers
     for (auto& m : m_hitMarkers) s_markers.push_back(m);
     m_hitMarkers.clear();
 
     float cx = ImGui::GetIO().DisplaySize.x * 0.5f;
     float cy = ImGui::GetIO().DisplaySize.y * 0.5f;
-    float sz = 10.f;
+    float sz = 8.f;
     DWORD now = GetTickCount();
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
     s_markers.erase(
         std::remove_if(s_markers.begin(), s_markers.end(), [&](const HitMarker& m){
             float elapsed = (float)(now - m.time) / 1000.f;
-            float alpha   = 1.f - elapsed / m_hitMarkerTime;
+            float alpha   = 1.f - elapsed / (m_hitMarkerTime > 0.01f ? m_hitMarkerTime : 0.5f);
             if (alpha <= 0.f) return true;
             ImU32 c = m.headshot ? IM_COL32(255,50,50,(int)(255*alpha))
                                  : IM_COL32(255,255,255,(int)(255*alpha));
-            dl->AddLine(ImVec2(cx-sz,cy),    ImVec2(cx-sz/2,cy),  c, 2.f);
-            dl->AddLine(ImVec2(cx+sz/2,cy),  ImVec2(cx+sz,cy),    c, 2.f);
-            dl->AddLine(ImVec2(cx,cy-sz),    ImVec2(cx,cy-sz/2),  c, 2.f);
-            dl->AddLine(ImVec2(cx,cy+sz/2),  ImVec2(cx,cy+sz),    c, 2.f);
+            // Cross hitmarker
+            dl->AddLine(ImVec2(cx-sz, cy-sz), ImVec2(cx-sz/3, cy-sz/3), c, 1.5f);
+            dl->AddLine(ImVec2(cx+sz/3, cy-sz/3), ImVec2(cx+sz, cy-sz), c, 1.5f);
+            dl->AddLine(ImVec2(cx-sz, cy+sz), ImVec2(cx-sz/3, cy+sz/3), c, 1.5f);
+            dl->AddLine(ImVec2(cx+sz/3, cy+sz/3), ImVec2(cx+sz, cy+sz), c, 1.5f);
             return false;
         }),
         s_markers.end()
@@ -375,18 +365,179 @@ void Visuals::RenderHitMarkers() {
 }
 
 void Visuals::RenderBombTimer() {
-    // Scan for planted C4 (entity classname check would require schema; skip for now)
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    if (!listAddr) return;
+    uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
+    if (!entityList) return;
+
+    // Scan entities 64 to 2048 for planted C4
+    for (int i = 64; i < 2048; ++i) {
+        uintptr_t entity = CS2::GetEntityByIndex(entityList, i);
+        if (!entity) continue;
+
+        // Try reading CPlantedC4 fields (m_bBombTicking offset is usually 0xFC0 or 0xFD4, timer is 0xFC4 or 0xFD8)
+        // Let's use known signature pattern offsets: ticking = 0xF40 / 0xFC0, timer = 0xF44 / 0xFC4
+        bool ticking = CS2::Read<bool>(entity + 0xFC0);
+        if (!ticking) ticking = CS2::Read<bool>(entity + 0xF40); // backup offset
+        if (!ticking) continue;
+
+        float timer = CS2::Read<float>(entity + 0xFC4);
+        if (timer <= 0.f || timer > 45.f) timer = CS2::Read<float>(entity + 0xF44); // backup offset
+        if (timer <= 0.f || timer > 45.f) continue;
+
+        // Render bomb timer bar
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        float screenW = ImGui::GetIO().DisplaySize.x;
+        float barW = 300.f;
+        float barH = 15.f;
+        float x = (screenW - barW) * 0.5f;
+        float y = 80.f;
+
+        float progress = timer / 40.f; // 40 second bomb timer
+        if (progress > 1.f) progress = 1.f;
+        if (progress < 0.f) progress = 0.f;
+
+        ImU32 bgCol = IM_COL32(0, 0, 0, 180);
+        ImU32 progressCol = progress > 0.25f ? IM_COL32(0, 220, 0, 255) : IM_COL32(220, 50, 50, 255);
+
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + barW, y + barH), bgCol, 4.f);
+        dl->AddRectFilled(ImVec2(x, y), ImVec2(x + (barW * progress), y + barH), progressCol, 4.f);
+
+        char buf[32];
+        sprintf_s(buf, "BOMB: %.2fs", timer);
+        ImVec2 textSz = ImGui::GetFont()->CalcTextSizeA(14.f, FLT_MAX, 0.f, buf);
+        dl->AddText(ImVec2(x + (barW - textSz.x) * 0.5f, y + (barH - textSz.y) * 0.5f), IM_COL32(255, 255, 255, 255), buf);
+        break; // Only draw one bomb timer
+    }
 }
 
 void Visuals::RenderSpectatorList() {
-    // Show which local-team players are spectating us
-    uintptr_t lcAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t lcAddr = Offsets::Get("dwLocalPlayerController");
     uintptr_t listAddr = Offsets::Get("dwEntityList");
-    uintptr_t ctrlAddr = Offsets::Get("dwLocalPlayerController");
-    if (!lcAddr || !listAddr || !ctrlAddr) return;
+    if (!lcAddr || !listAddr) return;
+
+    uintptr_t localCtrl = CS2::Read<uintptr_t>(lcAddr);
     uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
-    if (!entityList) return;
-    // Simple: listed in the corner. Full impl needs observer target traversal.
+    if (!localCtrl || !entityList) return;
+
+    uintptr_t localPawn = CS2::GetPawn(entityList, localCtrl);
+    if (!localPawn) return;
+
+    uint32_t myPawnHandle = CS2::Read<uint32_t>(localCtrl + 0x83C); // m_hPlayerPawn
+
+    std::vector<std::string> spectators;
+
+    // Enumerate player controllers
+    for (int i = 1; i <= 64; ++i) {
+        uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
+        if (!ctrl || ctrl == localCtrl) continue;
+
+        uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
+        if (!pawn) continue;
+
+        // CS2 observer target handle is typically at pawn + m_pObserverServices (0x1518) -> m_hObserverTarget (0x44)
+        uintptr_t observerServices = CS2::Read<uintptr_t>(pawn + 0x1518);
+        if (observerServices) {
+            uint32_t targetHandle = CS2::Read<uint32_t>(observerServices + 0x44);
+            if (targetHandle == myPawnHandle) {
+                std::string name = CS2::GetName(ctrl);
+                if (!name.empty()) spectators.push_back(name);
+            }
+        }
+    }
+
+    if (spectators.empty()) return;
+
+    // Draw Spectator List Window/Panel
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    float x = ImGui::GetIO().DisplaySize.x - 220.f;
+    float y = 150.f;
+
+    dl->AddRectFilled(ImVec2(x, y), ImVec2(x + 200.f, y + 25.f + (spectators.size() * 18.f)), IM_COL32(18, 18, 22, 230), 4.f);
+    dl->AddRect(ImVec2(x, y), ImVec2(x + 200.f, y + 25.f + (spectators.size() * 18.f)), IM_COL32(50, 50, 60, 255), 4.f);
+    dl->AddText(ImVec2(x + 10.f, y + 5.f), IM_COL32(0, 200, 255, 255), "SPECTATORS");
+
+    for (size_t i = 0; i < spectators.size(); ++i) {
+        dl->AddText(ImVec2(x + 10.f, y + 25.f + (i * 18.f)), IM_COL32(220, 220, 220, 255), spectators[i].c_str());
+    }
+}
+
+void Visuals::RenderRadar() {
+    uintptr_t lcAddr = Offsets::Get("dwLocalPlayerController");
+    uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    uintptr_t viewAngAddr = Offsets::Get("dwViewAngles");
+    if (!lcAddr || !lpAddr || !listAddr || !viewAngAddr) return;
+
+    uintptr_t localCtrl = CS2::Read<uintptr_t>(lcAddr);
+    uintptr_t localPawn = CS2::Read<uintptr_t>(lpAddr);
+    uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
+    if (!localCtrl || !localPawn || !entityList) return;
+
+    Vector3 localOrigin = CS2::GetAbsOrigin(localPawn);
+    Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
+
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    float rx = 20.f;
+    float ry = 100.f;
+    float rSize = 150.f;
+    float rCenter = rSize * 0.5f;
+
+    // Draw Radar Outline / Grid
+    dl->AddRectFilled(ImVec2(rx, ry), ImVec2(rx + rSize, ry + rSize), IM_COL32(18, 18, 22, 230), 4.f);
+    dl->AddRect(ImVec2(rx, ry), ImVec2(rx + rSize, ry + rSize), IM_COL32(50, 50, 60, 255), 4.f);
+    dl->AddLine(ImVec2(rx + rCenter, ry), ImVec2(rx + rCenter, ry + rSize), IM_COL32(50, 50, 60, 150));
+    dl->AddLine(ImVec2(rx, ry + rCenter), ImVec2(rx + rSize, ry + rCenter), IM_COL32(50, 50, 60, 150));
+
+    // Draw local player indicator (centered, pointing forward)
+    dl->AddCircleFilled(ImVec2(rx + rCenter, ry + rCenter), 3.f, IM_COL32(0, 200, 255, 255));
+
+    float angleRad = (viewAng.y) * 3.14159265f / 180.f;
+    float dx = cosf(angleRad) * 10.f;
+    float dy = sinf(angleRad) * 10.f;
+    dl->AddLine(ImVec2(rx + rCenter, ry + rCenter), ImVec2(rx + rCenter + dx, ry + rCenter - dy), IM_COL32(0, 200, 255, 255), 1.5f);
+
+    int localTeam = CS2::GetTeam(localCtrl);
+
+    // Enumerate players and map relative coordinates
+    for (int i = 1; i <= 64; ++i) {
+        uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
+        if (!ctrl || ctrl == localCtrl) continue;
+
+        uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
+        if (!pawn) continue;
+
+        int hp = CS2::GetHealth(pawn);
+        if (hp <= 0 || hp > 100) continue;
+
+        int team = CS2::GetTeam(ctrl);
+        bool isEnemy = (team != localTeam);
+
+        Vector3 pos = CS2::GetAbsOrigin(pawn);
+        if (pos.x == 0.f && pos.y == 0.f) continue;
+
+        // Delta position
+        float diffX = pos.x - localOrigin.x;
+        float diffY = pos.y - localOrigin.y;
+
+        // Rotate relative to player view angle
+        float rotX = diffY * cosf(angleRad) - diffX * sinf(angleRad);
+        float rotY = diffX * cosf(angleRad) + diffY * sinf(angleRad);
+
+        // Scale factors: 0.05f corresponds to ~2000 units max radar distance
+        float scale = 0.05f;
+        float dotX = rCenter + rotX * scale;
+        float dotY = rCenter + rotY * scale;
+
+        // Clamp to radar boundaries
+        if (dotX < 2.f) dotX = 2.f;
+        if (dotX > rSize - 2.f) dotX = rSize - 2.f;
+        if (dotY < 2.f) dotY = 2.f;
+        if (dotY > rSize - 2.f) dotY = rSize - 2.f;
+
+        ImU32 dotCol = isEnemy ? IM_COL32(255, 50, 50, 255) : IM_COL32(80, 160, 255, 255);
+        dl->AddCircleFilled(ImVec2(rx + dotX, ry + dotY), 2.5f, dotCol);
+    }
 }
 
 void Visuals::AddHitMarker(bool headshot) {
@@ -394,6 +545,3 @@ void Visuals::AddHitMarker(bool headshot) {
     m_hitMarkers.push_back(m);
 }
 
-bool Visuals::IsVisible(uintptr_t, const Vector3&) { return true; }
-std::string Visuals::GetPlayerName(uintptr_t ctrl) { return CS2::GetName(ctrl); }
-std::string Visuals::GetWeaponName(uintptr_t) { return ""; }

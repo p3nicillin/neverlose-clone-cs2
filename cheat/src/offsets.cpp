@@ -58,13 +58,16 @@ static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
     { "m_iAccount",             0xDC4  },
     { "m_ArmorValue",           0xEB0  },
     { "m_hActiveWeapon",        0xCE0  },
-    { "m_iClip1",               0x1694 },
-    { "m_AttributeManager",     0x370  },
+    { "m_iClip1",                   0x1774 },
+    { "m_AttributeManager",         0x370  },
     // Ragebot / anti-aim / third-person fallbacks (update via offsets.json/cs2-dumper)
     { "m_vecVelocity",              0x3F4  },  // CBaseEntity m_vecVelocity (approx)
     { "m_pObserverServices",        0x1518 },  // CCSPlayerPawn -> observer services ptr
     { "m_iObserverMode",            0x40   },  // within CPlayer_ObserverServices
     { "m_flObserverChaseDistance",  0x50   },  // within CPlayer_ObserverServices
+    { "m_iCrosshairEntityHandle",   0x15A4 },  // crosshair entity handle
+    { "m_flLowerBodyYawTarget",     0x1408 },  // lower body yaw target
+    { "dwForceAttack2",             0x172A3D0 }, // force reload/alt fire
 };
 
 // ---------------------------------------------------------------------------

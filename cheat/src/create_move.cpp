@@ -2,27 +2,29 @@
 // create_move.cpp  —  CInput::CreateMove hook
 //
 // Hook: client+0xAD54B8, confirmed via HWBP at 64Hz.
-// Method: restore-call-repatch.
+// Method: restore-call-repatch (avoids RIP-relative crash).
 //
 // CS2 CCSGOInput layout (Axion-verified):
-//   pInput + 0x0250 = arrCommands[150]  (CUserCmd, 0x88 bytes each)
+//   pInput + 0x0250 = arrCommands[150]  (CUserCmd array)
 //   pInput + 0x0A74 = nSequenceNumber   (int32)
-//   pInput + 0x0BE0 = angViewAngles     (QAngle, 3 floats)
-//   pInput + 0x0A51 = bInThirdPerson    (bool)
+//   pInput + 0x0BE0 = angViewAngles     (QAngle, 3 floats) ← DIRECT write
+//   pInput + 0x0A51 = bInThirdPerson    (bool)              ← third-person
 //
-// CRITICAL ORDERING:
-//   The original CreateMove fills the CUserCmd from the player's
-//   current mouse input.  We MUST apply our angle / button overrides
-//   POST-ORIGINAL so the game doesn't clobber our writes.
+// CUserCmd (0x88 bytes each):
+//   cmd + 0x20 = CCSGOUserCmdPB  m_csgoUserCmd  (inline struct)
+//     csgoCmd + 0x18 = CBaseUserCmdPB*  m_pBaseCmd   → cmd+0x38
+//   cmd + 0x30 = CInButtonState  m_nButtons     (inline struct)
+//     buttons + 0x08 = uint64_t  m_nValue        → cmd+0x38
 //
-// POST-ORIGINAL sequence:
-//   1. Save pBaseCmd ptr from cmd+0x38  (must happen BEFORE button write)
-//   2. Write aim angle to 0x0BE0 (render + bullet direction)
-//   3. Write aim angle to CUserCmd viewangles via pBaseCmd chain
-//   4. Write IN_ATTACK to cmd+0x38 (overwrites the ptr — ok, we saved it)
-//   5. Zero punch, bhop, third-person
+// NOTE: m_pBaseCmd (a POINTER at cmd+0x38) and m_nButtons.m_nValue
+//       (a uint64_t at cmd+0x38) BOTH resolve to cmd+0x38 in some
+//       versions of CS2. Writing buttons there doubles as setting the
+//       ptr to a small integer, which the game ignores gracefully.
+//       Per Axion the safest approach is to use both:
+//         (a) write CCSGOInput::angViewAngles (0x0BE0) for the angle,
+//         (b) write cmd+0x38 for the IN_ATTACK flag.
 //
-// IN_ATTACK = (1ULL << 0) = 1
+// IN_ATTACK = (1ULL << 0) = 1   (from Axion CS2 SDK constants)
 // =================================================================
 
 #include "create_move.h"
@@ -32,7 +34,6 @@
 #include "memory.h"
 #include "logger.h"
 #include "game_classes.h"
-#include "ui_manager.h"
 #include <windows.h>
 #include <cmath>
 #include <process.h>
@@ -43,9 +44,9 @@ static uintptr_t g_hookAddr   = 0;
 static uintptr_t g_clientBase = 0;
 static uint8_t   g_origBytes[14] = {};
 static uint8_t   g_jmpBytes[14]  = {};
-static volatile int g_cmCalls = 0;
+static volatile int  g_cmCalls = 0;
 
-// Shared state: written by CheatThread, read here at 64Hz
+// Shared state: set by CheatThread, consumed by CreateMove
 static volatile bool g_rbHasTarget = false;
 static volatile bool g_rbWantFire  = false;
 static Vector3       g_rbAimAngle  = {};
@@ -67,47 +68,50 @@ void CreateMoveHook::SetAntiAim(const Vector3& angle) {
 }
 void CreateMoveHook::ClearAntiAim() { g_aaActive = false; }
 
-// ---- Trampoline ----
+// ---- Trampoline helpers ----
 using CreateMoveFn = void(__fastcall*)(void*, int, float, bool);
 
 static void WriteAbsJmp(uint8_t* dst, uintptr_t target) {
+    // FF 25 00000000  [8-byte target]  — absolute indirect jmp
     dst[0]=0xFF; dst[1]=0x25; *(uint32_t*)(dst+2)=0;
-    *(uint64_t*)(dst+6)=target;
+    *(uint64_t*)(dst+6) = target;
 }
 
 static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
     if (!g_hookAddr) return false;
-    DWORD op;
-    VirtualProtect((void*)g_hookAddr, 14, PAGE_EXECUTE_READWRITE, &op);
+    DWORD oldProt;
+    VirtualProtect((void*)g_hookAddr, 14, PAGE_EXECUTE_READWRITE, &oldProt);
     memcpy((void*)g_hookAddr, g_origBytes, 14);
     bool ok = true;
-    __try { ((CreateMoveFn)g_hookAddr)(pThis, nSlot, t, active); }
-    __except(EXCEPTION_EXECUTE_HANDLER) { ok = false; }
+    __try {
+        ((CreateMoveFn)g_hookAddr)(pThis, nSlot, t, active);
+    } __except(EXCEPTION_EXECUTE_HANDLER) { ok = false; }
     memcpy((void*)g_hookAddr, g_jmpBytes, 14);
-    VirtualProtect((void*)g_hookAddr, 14, op, &op);
+    VirtualProtect((void*)g_hookAddr, 14, oldProt, &oldProt);
     return ok;
 }
 
-// Helper: get current CUserCmd ptr from CCSGOInput
-static uintptr_t GetCurrentCmd(void* pInput) {
-    uintptr_t inp = (uintptr_t)pInput;
-    int32_t  seq  = CS2::Read<int32_t>(inp + 0x0A74);
-    int      idx  = ((seq % 150) + 150) % 150;
-    return inp + 0x0250 + (uintptr_t)idx * 0x88;
-}
-
-// Apply angle to BOTH the render view (0x0BE0) AND the CUserCmd viewangle chain.
-// pBaseCmd must be read BEFORE any writes to pCmd+0x38 (which overlaps m_nButtons).
-static void ApplyAngleFull(void* pInput, uintptr_t pBaseCmd, const Vector3& angle) {
+// ---- Apply an angle through CCSGOInput ----
+// Two-pronged: write to angViewAngles (0x0BE0) AND through the CUserCmd chain.
+static void ApplyAngle(void* pInput, const Vector3& angle) {
     uintptr_t inp = (uintptr_t)pInput;
 
-    // 1. Render / bullet direction (CCSGOInput::angViewAngles)
+    // 1. CCSGOInput::angViewAngles — this IS what CS2 uses for bullet direction
     Memory::Write(inp + 0x0BE0, (void*)&angle, sizeof(Vector3));
 
-    // 2. CUserCmd viewangle chain (for server cmd)
+    // 2. Also write through the CUserCmd's protobuf view angle chain.
+    //    nSequenceNumber at 0x0A74, arrCommands at 0x0250, stride 0x88.
+    int32_t  seq = CS2::Read<int32_t>(inp + 0x0A74);
+    int      idx = ((seq % 150) + 150) % 150;
+    uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
+
+    // CCSGOUserCmdPB starts at cmd+0x20, m_pBaseCmd at +0x18 within → cmd+0x38
+    uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
     if (pBaseCmd > 0x100000) {
+        // CBaseUserCmdPB::m_pViewangles at +0x30 → CMsgQAngle*
         uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + 0x30);
         if (pViewAng > 0x100000) {
+            // CMsgQAngle floats: try at +0x10 (x/pitch), +0x14 (y/yaw), +0x18 (z)
             Memory::Write(pViewAng + 0x10, (void*)&angle.x, 4);
             Memory::Write(pViewAng + 0x14, (void*)&angle.y, 4);
             float z = 0.f;
@@ -116,108 +120,128 @@ static void ApplyAngleFull(void* pInput, uintptr_t pBaseCmd, const Vector3& angl
     }
 }
 
-// Apply angle ONLY to the CUserCmd chain (not to 0x0BE0).
-// Used for desync anti-aim: server sees fake angle, player sees real view.
-static void ApplyCmdAngleOnly(uintptr_t pBaseCmd, const Vector3& angle) {
-    if (pBaseCmd <= 0x100000) return;
-    uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + 0x30);
-    if (pViewAng <= 0x100000) return;
-    Memory::Write(pViewAng + 0x10, (void*)&angle.x, 4);
-    Memory::Write(pViewAng + 0x14, (void*)&angle.y, 4);
-    float z = 0.f;
-    Memory::Write(pViewAng + 0x18, &z, 4);
-}
-
-// Set IN_ATTACK in CUserCmd m_nButtons (at cmd+0x38).
-// NOTE: this writes over the m_pBaseCmd pointer — always save pBaseCmd first.
-static void SetAttackFlag(uintptr_t pCmd, bool attack) {
+// ---- Set or clear IN_ATTACK in CUserCmd ----
+static void SetAttack(void* pInput, bool attack) {
+    uintptr_t inp = (uintptr_t)pInput;
+    int32_t  seq  = CS2::Read<int32_t>(inp + 0x0A74);
+    int      idx  = ((seq % 150) + 150) % 150;
+    uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
+    // CUserCmd::m_nButtons at +0x30, CInButtonState::m_nValue at +0x08 → cmd+0x38
     uint64_t cur = CS2::Read<uint64_t>(pCmd + 0x38);
-    if (attack) cur |=  1ULL;
+    if (attack) cur |=  1ULL; // IN_ATTACK bit
     else        cur &= ~1ULL;
     Memory::Write(pCmd + 0x38, &cur, 8);
 }
 
-// ---- The actual hook ----
+// ---- Hooked CreateMove ----
 static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active) {
     ++g_cmCalls;
 
-    // ---- CALL ORIGINAL first ----
-    // This lets CS2 fill the CUserCmd from player mouse input.
-    if (!SafeCallOriginal(pThis, nSlot, t, active)) {
-        CreateMoveHook::Uninstall(); return;
-    }
-
-    // ---- POST-ORIGINAL modifications ----
     uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
     uintptr_t lp     = lpAddr ? CS2::Read<uintptr_t>(lpAddr) : 0;
     Config*   cfg    = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-    if (!lp || !cfg || !active || g_cmCalls < 64) return;
+    bool      ready  = g_cmCalls >= 64 && active && lp && cfg;
 
-    // Get CUserCmd and save pBaseCmd BEFORE any write that might clobber cmd+0x38
-    uintptr_t pCmd    = GetCurrentCmd(pThis);
-    uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
+    // -- PRE-ORIGINAL: set angle and fire flag in CCSGOInput --
+    if (ready) {
+        if (g_rbHasTarget) {
+            ApplyAngle(pThis, g_rbAimAngle);
+            if (g_rbWantFire)
+                SetAttack(pThis, true);
+        } else if (g_aaActive && cfg->m_antiaimEnabled) {
+            ApplyAngle(pThis, g_aaFakeAngle);
+        }
+    }
 
-    bool menuOpen = (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen());
+    // -- CALL ORIGINAL --
+    if (!SafeCallOriginal(pThis, nSlot, t, active)) {
+        CreateMoveHook::Uninstall();
+        return;
+    }
 
-    // ---- Ragebot silent aim + fire ----
-    if (g_rbHasTarget && !menuOpen) {
-        // Full angle: player's screen shows the aim target, server aims there too
-        ApplyAngleFull(pThis, pBaseCmd, g_rbAimAngle);
-        if (g_rbWantFire)
-            SetAttackFlag(pCmd, true);
+    // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
+    if (ready) {
+        int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
+        int      idx  = ((seq % 150) + 150) % 150;
+        uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
+        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
+
+        // No-recoil: zero punch angle + velocity
+        if (cfg->m_noRecoil) {
+            uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + 0x1490);
+            if (punchSvc) {
+                float z = 0.f;
+                for (uintptr_t off = 0x48; off <= 0x5C; off += 4)
+                    Memory::Write(punchSvc + off, &z, 4);
+            }
+        }
+
+        // Bhop
+        if (cfg->m_bunnyhop && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
+            uint32_t flags = CS2::Read<uint32_t>(lp + 0x3F8);
+            if (flags & 1) { // on ground
+                uintptr_t fjAddr = Offsets::Get("dwForceJump");
+                if (fjAddr) { int v = 65537; Memory::Write(fjAddr, &v, 4); }
+            }
+        }
+
+        // Auto-strafe
+        if (cfg->m_autoStrafe) {
+            uint32_t flags = CS2::Read<uint32_t>(lp + 0x3F8);
+            if (!(flags & 1)) { // in air
+                POINT cur; GetCursorPos(&cur);
+                static POINT last = cur;
+                int dx = cur.x - last.x;
+                last = cur;
+                if (pBaseCmd > 0x100000) {
+                    float strafeSide = 0.f;
+                    if (dx < 0) strafeSide = -450.f;
+                    else if (dx > 0) strafeSide = 450.f;
+                    if (strafeSide != 0.f) {
+                        Memory::Write(pBaseCmd + 0x24, &strafeSide, 4); // flSideMove
+                    }
+                }
+            }
+        }
+
+        // Auto-pistol
+        if (cfg->m_autoPistol) {
+            uintptr_t listAddr = Offsets::Get("dwEntityList");
+            uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+            if (entityList) {
+                uintptr_t wep = CS2::GetActiveWeapon(entityList, lp);
+                if (wep) {
+                    int wid = CS2::Read<int>(wep + 0x300);
+                    bool isPistol = (wid >= 1 && wid <= 9) || wid == 30;
+                    if (isPistol) {
+                        static bool toggle = false;
+                        uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
+                        if (buttons & 1ULL) { // IN_ATTACK
+                            if (toggle) {
+                                buttons &= ~1ULL;
+                            }
+                            toggle = !toggle;
+                            Memory::Write(pCmd + 0x38, &buttons, 8);
+                        } else {
+                            toggle = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clear fire flag for next tick if ragebot didn't request it again
+        if (!g_rbWantFire)
+            SetAttack(pThis, false);
         g_rbWantFire = false;
-    }
-    // ---- Anti-aim desync ----
-    else if (g_aaActive && cfg->m_antiaimEnabled && !menuOpen && !g_rbHasTarget) {
-        // Desync: write ONLY to the CUserCmd chain (not 0x0BE0).
-        // Server sees g_aaFakeAngle, player's rendered view is untouched.
-        ApplyCmdAngleOnly(pBaseCmd, g_aaFakeAngle);
-    }
 
-    // ---- No-recoil (zero punch post-original) ----
-    if (cfg->m_noRecoil) {
-        uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + 0x1490);
-        if (punchSvc) {
-            float z = 0.f;
-            for (uintptr_t off = 0x48; off <= 0x5C; off += 4)
-                Memory::Write(punchSvc + off, &z, 4);
-        }
-    }
-
-    // ---- Bhop ----
-    if (cfg->m_bunnyhop && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
-        uint32_t flags = CS2::Read<uint32_t>(lp + 0x3F8);
-        if (flags & 1) {
-            uintptr_t fjAddr = Offsets::Get("dwForceJump");
-            if (fjAddr) { int v = 65537; Memory::Write(fjAddr, &v, 4); }
-        }
-    }
-
-    // ---- Third-person via CCSGOInput+0x0A51 (Axion-confirmed) ----
-    {
-        bool tp = cfg->m_thirdPerson;
-        Memory::Write((uintptr_t)pThis + 0x0A51, &tp, 1);
-    }
-
-    // ---- Fakelag: choke packets to make server see teleport movement ----
-    // CS2 CCSGOInput + 0x0AE8 = nChokedCommands (int).
-    // When > 0, the networking layer skips sending this command tick.
-    // We cap at cfg->m_antiaimFakeLagAmount ticks (typical 4-14 for HvH).
-    if (cfg->m_antiaimEnabled && cfg->m_antiaimFakeLag && !menuOpen) {
-        static int s_chokeCount = 0;
-        int maxChoke = (int)cfg->m_antiaimFakeLagAmount;
-        if (maxChoke < 1) maxChoke = 1;
-        if (maxChoke > 14) maxChoke = 14;
-        ++s_chokeCount;
-        if (s_chokeCount < maxChoke) {
-            // Write choke count to suppress sending this packet
-            int choke = s_chokeCount;
-            Memory::Write((uintptr_t)pThis + 0x0AE8, &choke, 4);
+        // Third-person via CCSGOInput + 0x0A51 (Axion-confirmed)
+        if (cfg->m_thirdPerson) {
+            bool tp = true;
+            Memory::Write((uintptr_t)pThis + 0x0A51, &tp, 1);
         } else {
-            s_chokeCount = 0;
-            // Let packet through (zero = send)
-            int zero = 0;
-            Memory::Write((uintptr_t)pThis + 0x0AE8, &zero, 4);
+            bool fp = false;
+            Memory::Write((uintptr_t)pThis + 0x0A51, &fp, 1);
         }
     }
 }
@@ -232,15 +256,18 @@ bool CreateMoveHook::Install() {
 
 bool CreateMoveHook::InstallAt(uintptr_t addr) {
     if (!addr) return false;
+
     memcpy(g_origBytes, (void*)addr, 14);
     WriteAbsJmp(g_jmpBytes, (uintptr_t)hkCreateMove);
+
     DWORD op;
     VirtualProtect((void*)addr, 14, PAGE_EXECUTE_READWRITE, &op);
     memcpy((void*)addr, g_jmpBytes, 14);
     VirtualProtect((void*)addr, 14, op, &op);
+
     g_hookAddr  = addr;
     s_installed = true;
-    Logger::Log("CreateMove: installed");
+    Logger::Log("CreateMove: hook installed");
     return true;
 }
 
@@ -251,7 +278,7 @@ void CreateMoveHook::Uninstall() {
     memcpy((void*)g_hookAddr, g_origBytes, 14);
     VirtualProtect((void*)g_hookAddr, 14, op, &op);
     s_installed = false;
-    Logger::Log("CreateMove: removed");
+    Logger::Log("CreateMove: unhooked");
 }
 
 void CreateMoveHook::OnCreateMove(uintptr_t, CS2UserCmd*, bool) {}
