@@ -93,6 +93,15 @@ void Aimbot::Update() {
     if (!bestPawn) return;
 
     Vector3 targetAng = CalcAngle(eyePos, bestHead);
+    if (cfg->m_legitbotRcs > 0.f) {
+        uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
+        if (punchSvc) {
+            float scale = cfg->m_legitbotRcs * 0.01f;
+            uintptr_t po = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
+            targetAng.x -= CS2::Read<float>(punchSvc + po) * scale;
+            targetAng.y -= CS2::Read<float>(punchSvc + po + 4) * scale;
+        }
+    }
     float smooth = (cfg->m_aimbotSmooth < 1.f) ? 1.f : cfg->m_aimbotSmooth;
 
     // Write only the DELTA so mouse movement is still honoured
@@ -105,14 +114,6 @@ void Aimbot::Update() {
     newAng.x = viewAng.x + dPitch / smooth;
     newAng.y = viewAng.y + dYaw   / smooth;
     newAng.z = 0.f;
-    if (cfg->m_legitbotRcs > 0.f) {
-        uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
-        if (punchSvc) {
-            float scale = cfg->m_legitbotRcs * 0.01f;
-            newAng.x -= CS2::Read<float>(punchSvc + Offsets::Get("m_vecCsViewPunchAngle", 0x48)) * scale;
-            newAng.y -= CS2::Read<float>(punchSvc + Offsets::Get("m_vecCsViewPunchAngle", 0x48) + 4) * scale;
-        }
-    }
     newAng   = NormAngles(newAng);
 
     Memory::Write(viewAngAddr, &newAng, sizeof(newAng));

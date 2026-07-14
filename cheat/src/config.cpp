@@ -87,6 +87,8 @@ void Config::LoadDefaultConfig() {
     m_ragebotMultipointScale = 0.5f;
     m_ragebotResolver = true;
     m_ragebotResolverMode = 0; // 0=Auto, 1=LBY, 2=History
+    m_ragebotNoRecoil = false;
+    m_ragebotNoSpread = false;
 
     // Anti-aim settings
     m_antiaimEnabled = true;
@@ -236,6 +238,8 @@ bool Config::Save(const std::string& name) {
         j["ragebot"]["multipoint_scale"] = m_ragebotMultipointScale;
         j["ragebot"]["resolver"] = m_ragebotResolver;
         j["ragebot"]["resolver_mode"] = m_ragebotResolverMode;
+        j["ragebot"]["no_recoil"] = m_ragebotNoRecoil;
+        j["ragebot"]["no_spread"] = m_ragebotNoSpread;
 
         // Anti-aim
         j["antiaim"]["enabled"] = m_antiaimEnabled;
@@ -407,6 +411,8 @@ bool Config::Load(const std::string& name) {
             if (r.contains("multipoint_scale")) m_ragebotMultipointScale = r["multipoint_scale"];
             if (r.contains("resolver")) m_ragebotResolver = r["resolver"];
             if (r.contains("resolver_mode")) m_ragebotResolverMode = r["resolver_mode"];
+            if (r.contains("no_recoil")) m_ragebotNoRecoil = r["no_recoil"];
+            if (r.contains("no_spread")) m_ragebotNoSpread = r["no_spread"];
         }
 
         // Anti-aim

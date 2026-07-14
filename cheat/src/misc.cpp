@@ -42,7 +42,7 @@ void Misc::Update() {
     // ---- No recoil + No spread ----
     // Punch zeroing is handled in CreateMove (post-original, with velocity zeroed).
     // Only do weapon field zeroing here as a backup at 1000Hz.
-    if ((cfg->m_noRecoil || cfg->m_noSpread) && !CreateMoveHook::IsActive()) {
+    if ((cfg->m_ragebotNoRecoil || cfg->m_ragebotNoSpread) && !CreateMoveHook::IsActive()) {
         // Fallback: if CreateMove hook not active, zero punch here
         uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
         if (punchSvc) {
@@ -63,8 +63,8 @@ void Misc::Update() {
             uintptr_t weapon     = weapHandle ? CS2::HandleToPtr(entityList, weapHandle) : 0;
             if (weapon) {
                 float z = 0.f;
-                if (cfg->m_noRecoil) Memory::Write(weapon + 0x17E0, &z, 4);
-                if (cfg->m_noSpread) Memory::Write(weapon + 0x17D0, &z, 4);
+                if (cfg->m_ragebotNoRecoil) Memory::Write(weapon + 0x17E0, &z, 4);
+                if (cfg->m_ragebotNoSpread) Memory::Write(weapon + 0x17D0, &z, 4);
             }
         }
     }

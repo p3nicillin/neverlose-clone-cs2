@@ -304,8 +304,8 @@ void UIManager::RenderRagebotTab() {
     ImGui::Combo("Resolver Mode", &config->m_ragebotResolverMode, "Auto\0LBY\0History\0");
     ImGui::Separator();
     ImGui::Text("Rage weapon control");
-    ImGui::Checkbox("No Recoil", &config->m_noRecoil);
-    ImGui::Checkbox("No Spread", &config->m_noSpread);
+    ImGui::Checkbox("No Recoil", &config->m_ragebotNoRecoil);
+    ImGui::Checkbox("No Spread", &config->m_ragebotNoSpread);
     ImGui::EndChild();
 }
 

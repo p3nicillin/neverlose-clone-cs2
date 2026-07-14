@@ -98,7 +98,7 @@ static void ApplyAngle(void* pInput, const Vector3& angle) {
     uintptr_t inp = (uintptr_t)pInput;
     Vector3 compensated = angle;
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-    if (cfg && cfg->m_noRecoil) {
+    if (cfg && cfg->m_ragebotNoRecoil) {
         uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
         uintptr_t lp = lpAddr ? CS2::Read<uintptr_t>(lpAddr) : 0;
         uintptr_t punch = lp ? CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x1490)) : 0;
@@ -157,7 +157,7 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
     Vector3 recoilPre{};
     // -- PRE-ORIGINAL: set angle and fire flag in CCSGOInput --
     if (ready) {
-        if (cfg->m_noRecoil)
+        if (cfg->m_ragebotNoRecoil)
             recoilPre = NoSpread::ApplyRecoilCompensationPre(lp);
         if (g_rbHasTarget) {
             ApplyAngle(pThis, g_rbAimAngle);
@@ -176,7 +176,7 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
     // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
-        if (cfg->m_noRecoil)
+        if (cfg->m_ragebotNoRecoil)
             NoSpread::ApplyRecoilCompensationPost(lp, recoilPre);
         int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
         int      idx  = ((seq % 150) + 150) % 150;
@@ -184,7 +184,7 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
 
         // No-recoil: zero punch angle + velocity
-        if (cfg->m_noRecoil) {
+        if (cfg->m_ragebotNoRecoil) {
             uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
             if (punchSvc) {
                 float z = 0.f;
@@ -193,7 +193,7 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             }
         }
 
-        if (cfg->m_noSpread) {
+        if (cfg->m_ragebotNoSpread) {
             uintptr_t listAddr = Offsets::Get("dwEntityList");
             uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
             uintptr_t weapon = entityList ? CS2::GetActiveWeapon(entityList, lp) : 0;

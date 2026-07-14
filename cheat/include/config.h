@@ -41,6 +41,8 @@ public:
     float m_ragebotMultipointScale;
     bool m_ragebotResolver;
     int m_ragebotResolverMode;
+    bool m_ragebotNoRecoil;
+    bool m_ragebotNoSpread;
 
     // Anti-aim settings
     bool m_antiaimEnabled;
