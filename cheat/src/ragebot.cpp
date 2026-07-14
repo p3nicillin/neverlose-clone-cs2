@@ -275,28 +275,14 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         aimPoint.z += 72.f; // Fallback
         bool useBaim = false;
 
-        // Try getting backtrack record point first
-        bool gotBacktrack = false;
-        if (cfg->m_ragebotBacktrack) {
-            gotBacktrack = GetBacktrackPoint(i, cfg->m_ragebotBacktrackTime, aimPoint);
-        }
-
-        if (!gotBacktrack) {
-            // Standard bone retrieval (bone 5 = head)
-            uintptr_t bones = CS2::GetBoneArray(pawn);
-            if (bones) {
-                Vector3 hb = CS2::GetBonePos(bones, 5);
-                // Body Aim (Baim) fallbacks: target torso (bone 2 = spine2) if distance is too high or moving rapidly
-                if (cfg->m_ragebotMultipoint && (dist > 1500.f || isLocalMoving)) {
-                    Vector3 torso = CS2::GetBonePos(bones, 2);
-                    if (Dist3D(torso, pos) < 300.f) {
-                        aimPoint = torso;
-                        useBaim = true;
-                    }
-                } else if (Dist3D(hb, pos) < 300.f) {
-                    aimPoint = hb;
-                }
-            }
+        // Baseline rage aim uses the current head only. Backtrack and
+        // multipoint are intentionally deferred until this path is stable.
+        uintptr_t bones = CS2::GetBoneArray(pawn);
+        if (bones) {
+            Vector3 hb = CS2::GetBonePos(bones, 5);
+            if (std::isfinite(hb.x) && std::isfinite(hb.y) && std::isfinite(hb.z) &&
+                hb.z > pos.z + 30.f && hb.z < pos.z + 110.f)
+                aimPoint = hb;
         }
 
         // Baseline rage selection must not be blocked by approximate trace,
@@ -416,12 +402,22 @@ void Ragebot::Run(CUserCmd*) {
     // consume the pending shared state.
     uintptr_t vaWrite = Offsets::Get("dwViewAngles");
     if (vaWrite) Memory::Write(vaWrite, &bestAim, sizeof(bestAim));
+    static bool mouseDown = false;
     if (wantFire) {
-        // Fallback for builds where the CUserCmd button layout differs.
-        uintptr_t attack = Offsets::Get("dwForceAttack");
-        if (attack) {
-            int fire = 65537;
-            Memory::Write(attack, &fire, sizeof(fire));
+        if (!mouseDown) {
+            INPUT inp{};
+            inp.type = INPUT_MOUSE;
+            inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            SendInput(1, &inp, sizeof(inp));
+            mouseDown = true;
+        }
+    } else {
+        if (mouseDown) {
+            INPUT inp{};
+            inp.type = INPUT_MOUSE;
+            inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            SendInput(1, &inp, sizeof(inp));
+            mouseDown = false;
         }
     }
     m_lastTarget = target.pawn;
