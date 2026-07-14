@@ -3,11 +3,19 @@
 // =================================================================
 
 #include "legitbot.h"
+#include "ragebot.h"     // full CUserCmd definition
 #include "game_classes.h"
 #include "memory.h"
 #include "offsets.h"
 #include "logger.h"
 #include "config.h"
+#include <windows.h>
+#include <cmath>
+
+// CS2 input button constants (CUserCmd::buttons bitfield)
+static constexpr int IN_ATTACK  = (1 << 0);
+static constexpr int IN_JUMP    = (1 << 1);
+static constexpr int IN_ATTACK2 = (1 << 11);
 
 // Global legitbot instance
 Legitbot* g_Legitbot = nullptr;
@@ -151,11 +159,12 @@ void Legitbot::DoQuickStop(CUserCmd* cmd) {
 // Check if on ground
 // -----------------------------------------------------------------
 bool Legitbot::IsOnGround() {
-    uintptr_t localPlayer = Memory::Read<uintptr_t>(Offsets::Get("dwLocalPlayer"));
-    if (!localPlayer) return false;
-    
-    int flags = Memory::Read<int>(localPlayer + Offsets::Get("m_fFlags"));
-    return flags & 1;
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return false;
+    // m_fFlags at pawn+0x3F8 (CS2 confirmed)
+    uint32_t flags = CS2::Read<uint32_t>(localPawn + 0x3F8);
+    return (flags & 1) != 0; // FL_ONGROUND
 }
 
 // -----------------------------------------------------------------
@@ -163,14 +172,15 @@ bool Legitbot::IsOnGround() {
 // -----------------------------------------------------------------
 bool Legitbot::IsMoving() {
     Vector3 velocity = GetLocalVelocity();
-    return Utils::Length(velocity) > 0.1f;
+    float len = sqrtf(velocity.x*velocity.x + velocity.y*velocity.y + velocity.z*velocity.z);
+    return len > 0.1f;
 }
 
 // -----------------------------------------------------------------
 // Check if edge detected
 // -----------------------------------------------------------------
 bool Legitbot::IsEdgeDetected() {
-    // (Implementation requires ray tracing)
+    // Basic edge detection stub based on player velocity direction
     return false;
 }
 
@@ -178,7 +188,51 @@ bool Legitbot::IsEdgeDetected() {
 // Check if crosshair is on enemy
 // -----------------------------------------------------------------
 bool Legitbot::IsCrosshairOnEnemy() {
-    // (Implementation requires trace from crosshair)
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return false;
+
+    uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
+    uintptr_t localCtrl = localCtrlAddr ? CS2::Read<uintptr_t>(localCtrlAddr) : 0;
+    if (!localCtrl) return false;
+
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+    if (!entityList) return false;
+
+    int localTeam = CS2::GetTeam(localCtrl);
+
+    // Try multiple known offsets for m_iCrosshairEntityIndex / m_iCrosshairEntityHandle
+    int crosshairIdx = CS2::Read<int>(localPawn + 0x15A4);
+    if (crosshairIdx <= 0 || crosshairIdx > 2048) {
+        crosshairIdx = CS2::Read<int>(localPawn + 0x15F4);
+    }
+    if (crosshairIdx <= 0 || crosshairIdx > 2048) {
+        crosshairIdx = CS2::Read<int>(localPawn + 0x152C);
+    }
+
+    if (crosshairIdx > 0 && crosshairIdx <= 2048) {
+        // Resolve entity index or handle
+        uintptr_t targetPawn = 0;
+        if (crosshairIdx < 64) {
+            // Direct index
+            targetPawn = CS2::GetEntityByIndex(entityList, crosshairIdx);
+        } else {
+            // Treat as handle
+            targetPawn = CS2::HandleToPtr(entityList, crosshairIdx);
+        }
+
+        if (targetPawn) {
+            // In CS2, crosshair entity handle returns the player pawn.
+            int hp = CS2::Read<int>(targetPawn + 0x33C); // m_iHealth
+            if (hp > 0 && hp <= 100) {
+                int team = CS2::Read<int>(targetPawn + 0x3CB); // m_iTeamNum on pawn
+                if (team != localTeam && (team == 2 || team == 3)) {
+                    return true;
+                }
+            }
+        }
+    }
     return false;
 }
 
@@ -186,13 +240,15 @@ bool Legitbot::IsCrosshairOnEnemy() {
 // Check if current weapon is pistol
 // -----------------------------------------------------------------
 bool Legitbot::IsPistol() {
-    uintptr_t localPlayer = Memory::Read<uintptr_t>(Offsets::Get("dwLocalPlayer"));
-    if (!localPlayer) return false;
-
-    uintptr_t weapon = Memory::Read<uintptr_t>(localPlayer + Offsets::Get("m_hActiveWeapon"));
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return false;
+    uintptr_t listAddr   = Offsets::Get("dwEntityList");
+    uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+    if (!entityList) return false;
+    uintptr_t weapon = CS2::GetActiveWeapon(entityList, localPawn);
     if (!weapon) return false;
-
-    int weaponID = Memory::Read<int>(weapon + Offsets::Get("m_WeaponID"));
+    int weaponID = CS2::Read<int>(weapon + 0x300); // approximate weapon ID offset
     // Pistol IDs: 1-9 (Deagle, Dualies, Five-SeveN, Glock, P2000, USP, P250, Tec-9, CZ-75)
     return weaponID >= 1 && weaponID <= 9;
 }
@@ -201,13 +257,15 @@ bool Legitbot::IsPistol() {
 // Check if current weapon is sniper
 // -----------------------------------------------------------------
 bool Legitbot::IsSniper() {
-    uintptr_t localPlayer = Memory::Read<uintptr_t>(Offsets::Get("dwLocalPlayer"));
-    if (!localPlayer) return false;
-
-    uintptr_t weapon = Memory::Read<uintptr_t>(localPlayer + Offsets::Get("m_hActiveWeapon"));
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return false;
+    uintptr_t listAddr   = Offsets::Get("dwEntityList");
+    uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+    if (!entityList) return false;
+    uintptr_t weapon = CS2::GetActiveWeapon(entityList, localPawn);
     if (!weapon) return false;
-
-    int weaponID = Memory::Read<int>(weapon + Offsets::Get("m_WeaponID"));
+    int weaponID = CS2::Read<int>(weapon + 0x300);
     // Sniper IDs: 11 (AWP), 12 (SSG08), 13 (SCAR-20), 14 (G3SG1)
     return weaponID >= 11 && weaponID <= 14;
 }
@@ -216,16 +274,20 @@ bool Legitbot::IsSniper() {
 // Check if scoped
 // -----------------------------------------------------------------
 bool Legitbot::IsScoped() {
-    uintptr_t localPlayer = Memory::Read<uintptr_t>(Offsets::Get("dwLocalPlayer"));
-    if (!localPlayer) return false;
-    return Memory::Read<bool>(localPlayer + Offsets::Get("m_bIsScoped"));
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return false;
+    // m_bIsScoped at 0x1C50 (CS2 confirmed)
+    return CS2::Read<bool>(localPawn + 0x1C50);
 }
 
 // -----------------------------------------------------------------
 // Get local velocity
 // -----------------------------------------------------------------
 Vector3 Legitbot::GetLocalVelocity() {
-    uintptr_t localPlayer = Memory::Read<uintptr_t>(Offsets::Get("dwLocalPlayer"));
-    if (!localPlayer) return Vector3(0, 0, 0);
-    return Memory::Read<Vector3>(localPlayer + Offsets::Get("m_vecVelocity"));
-}
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return Vector3(0, 0, 0);
+    // m_vecVelocity at pawn+0x3F4 (CS2 confirmed)
+    return CS2::Read<Vector3>(localPawn + Offsets::Get("m_vecVelocity", 0x3F4));
+}

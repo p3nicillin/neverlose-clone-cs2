@@ -72,7 +72,7 @@ void Aimbot::Update() {
     Vector3   bestHead = {};
     float     bestFov  = cfg->m_aimbotFov;
 
-    for (int i = 1; i <= 1024; ++i) {
+    for (int i = 1; i <= 64; ++i) {
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
         if (!ctrl || ctrl == localCtrl) continue;
         int team = CS2::GetTeam(ctrl);

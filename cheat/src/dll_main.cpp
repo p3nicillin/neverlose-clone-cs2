@@ -72,11 +72,9 @@ static void RunCheat() {
     Logger::Shutdown();
 }
 
-// Thread function — unsigned __stdcall required by _beginthreadex
-// _beginthreadex wraps this with CRT per-thread init so std::string etc. work
-static unsigned __stdcall CheatThread(void*) {
+static DWORD WINAPI CheatThread(LPVOID) {
     Logger::Init();
-    Logger::Log("CheatThread: CRT per-thread init OK");
+    Logger::Log("CheatThread: thread start");
 
     __try {
         RunCheat();
@@ -91,10 +89,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
         RawLog("[DllMain] attach");
         DisableThreadLibraryCalls(hModule);
 
-        // _beginthreadex instead of CreateThread — ensures CRT initialises
-        // per-thread data (errno, strtok buffer, etc.) before CheatThread runs
-        g_MainThread = _beginthreadex(nullptr, 0, CheatThread, nullptr, 0, nullptr);
-        RawLog(g_MainThread ? "[DllMain] _beginthreadex OK" : "[DllMain] _beginthreadex FAILED");
+        HANDLE hThread = CreateThread(nullptr, 0, CheatThread, nullptr, 0, nullptr);
+        if (hThread) {
+            g_MainThread = reinterpret_cast<uintptr_t>(hThread);
+            RawLog("[DllMain] CreateThread OK");
+        } else {
+            RawLog("[DllMain] CreateThread FAILED");
+        }
 
     } else if (reason == DLL_PROCESS_DETACH) {
         if (g_Cheat) g_Cheat->Shutdown();

@@ -115,143 +115,41 @@ void UIManager::Update() {
 // -----------------------------------------------------------------
 // Render UI
 // -----------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// ESP — drawn every frame on the background draw list (behind the menu)
-// ---------------------------------------------------------------------------
-void UIManager::RenderESP() {
-    if (!g_Cheat) return;
-    Config* cfg = g_Cheat->GetConfig();
-    if (!cfg || !cfg->m_visualsEnabled || !cfg->m_espEnabled) return;
-
-    uintptr_t clientBase    = Memory::GetClientBase();
-    uintptr_t listAddr      = Offsets::Get("dwEntityList");
-    uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
-    if (!clientBase || !listAddr || !localCtrlAddr) return;
-
-    uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
-    uintptr_t localCtrl  = CS2::Read<uintptr_t>(localCtrlAddr);
-    if (!entityList || !localCtrl) return;
-
-    int       localTeam = CS2::GetTeam(localCtrl);
-    Matrix4x4 vm        = CS2::GetViewMatrix();
-
-    ImDrawList* dl  = ImGui::GetBackgroundDrawList();
-    ImVec2      disp = ImGui::GetIO().DisplaySize;
-    int sw = (int)disp.x, sh = (int)disp.y;
-    if (sw <= 0 || sh <= 0) return;
-
-    int nCtrl = 0, nPawn = 0, nAlive = 0, nDrawn = 0;
-    (void)nCtrl; (void)nPawn; (void)nAlive; (void)nDrawn;
-
-    for (int i = 1; i <= 1024; ++i) {
-        uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
-        if (!ctrl || ctrl == localCtrl) continue;
-        nCtrl++;
-
-        // Only draw actual players (team 2=T, 3=CT)
-        int team = CS2::GetTeam(ctrl);
-        if (team != 2 && team != 3) continue;
-        // In deathmatch all teams are enemies; only skip true teammates if option is off
-        bool isTeammate = (team == localTeam);
-        if (isTeammate && !cfg->m_espTeammates) continue;
-
-        uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
-        if (!pawn) continue;
-        nPawn++;
-
-        int hp = CS2::GetHealth(pawn);
-        if (hp <= 0 || hp > 100) continue;
-        nAlive++;
-
-        Vector3 origin = CS2::GetAbsOrigin(pawn);
-        if (origin.x == 0.f && origin.y == 0.f && origin.z == 0.f) continue;
-        // CS2: m_vecAbsOrigin is at player feet; standing height ~72u, head ~68u
-        Vector3 head = { origin.x, origin.y, origin.z + 68.f };
-
-        Vector2 sOrigin, sHead;
-        if (!Utils::WorldToScreen(origin, sOrigin, vm, sw, sh)) continue;
-        if (!Utils::WorldToScreen(head,   sHead,   vm, sw, sh)) continue;
-
-        float boxH = sOrigin.y - sHead.y;
-        if (boxH < 2.f || boxH > (float)sh) continue;
-        float boxW = boxH * 0.45f;
-        nDrawn++;
-
-        ImU32 col = isTeammate
-                    ? IM_COL32(0, 200, 100, 230)   // green = teammate
-                    : IM_COL32(255, 50,  50,  230); // red   = enemy
-
-        float x1 = sHead.x - boxW * 0.5f, y1 = sHead.y;
-        float x2 = sHead.x + boxW * 0.5f, y2 = sOrigin.y;
-
-        if (cfg->m_espBox)
-            dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), col, 0.f, 1.5f);
-
-        if (cfg->m_espHealthBar) {
-            float bx = x1 - 5.f, bh = y2 - y1, fh = bh * (hp / 100.f);
-            ImU32 hc = IM_COL32((int)(255*(1.f-hp/100.f)),(int)(255*(hp/100.f)),0,230);
-            dl->AddRectFilled(ImVec2(bx-2,y1),ImVec2(bx,y2),IM_COL32(0,0,0,160));
-            dl->AddRectFilled(ImVec2(bx-2,y2-fh),ImVec2(bx,y2),hc);
-            char t[8]; sprintf_s(t,"%d",hp);
-            dl->AddText(ImVec2(bx-18.f,y2-fh-6.f),hc,t);
-        }
-
-        if (cfg->m_espName) {
-            std::string name = CS2::GetName(ctrl);
-            if (!name.empty())
-                dl->AddText(ImVec2(x1, y1-14.f), IM_COL32(255,255,255,230), name.c_str());
-        }
-
-        // Skeleton ESP — dynamic: find all valid bones, auto-connect nearby ones
-        if (cfg->m_espSkeleton) {
-            uintptr_t boneArr = CS2::GetBoneArray(pawn);
-            if (boneArr) {
-                // Collect valid bone positions (within player bounding box)
-                struct BonePt { Vector3 w; Vector2 s; bool onScreen; };
-                std::vector<BonePt> pts;
-
-                for (int b = 0; b < 128; b++) {
-                    Vector3 bp = CS2::GetBonePos(boneArr, b);
-                    // Filter: must be within player extent (~60 radius, -10 to 90 vertical)
-                    float dx = bp.x - origin.x, dy = bp.y - origin.y, dz = bp.z - origin.z;
-                    if (bp.x==0&&bp.y==0&&bp.z==0) continue;
-                    if (fabsf(dx)>60||fabsf(dy)>60||dz<-20||dz>100) continue;
-                    Vector2 sp;
-                    bool vis = Utils::WorldToScreen(bp, sp, vm, sw, sh);
-                    pts.push_back({bp, sp, vis});
-                }
-
-                // Connect bones that are within 35 units of each other in 3D
-                // This creates a natural skeleton without needing exact indices
-                for (size_t i = 0; i < pts.size(); i++) {
-                    for (size_t j = i+1; j < pts.size(); j++) {
-                        if (!pts[i].onScreen || !pts[j].onScreen) continue;
-                        float dx = pts[i].w.x-pts[j].w.x;
-                        float dy = pts[i].w.y-pts[j].w.y;
-                        float dz = pts[i].w.z-pts[j].w.z;
-                        float d = sqrtf(dx*dx+dy*dy+dz*dz);
-                        if (d > 0.5f && d < 32.f) {
-                            dl->AddLine(ImVec2(pts[i].s.x,pts[i].s.y),
-                                        ImVec2(pts[j].s.x,pts[j].s.y),
-                                        col, 1.2f);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Spread circle around crosshair (base inaccuracy indicator)
-    if (cfg->m_espEnabled) {
-        float cx = sw * 0.5f, cy = sh * 0.5f;
-        dl->AddCircle(ImVec2(cx,cy), 2.5f, IM_COL32(255,255,255,200), 12, 1.f); // dot center
-    }
-}
-
 void UIManager::Render() {
     if (!m_initialized || !m_rendererReady) return;
 
-    RenderESP();
+    // Render primary cheat visuals
+    if (g_Cheat && g_Cheat->GetVisuals()) {
+        g_Cheat->GetVisuals()->Render();
+    }
+
+    // Premium Neverlose.cc Watermark
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    if (g_Cheat && g_Cheat->GetConfig() && g_Cheat->GetConfig()->m_visualsEnabled) {
+        char watermark[128];
+        int fps = (int)ImGui::GetIO().Framerate;
+        sprintf_s(watermark, "neverlose.cc | CS2 | FPS: %d | premium", fps);
+        ImVec2 textSz = ImGui::GetFont()->CalcTextSizeA(13.f, FLT_MAX, 0.f, watermark);
+        float wWidth = textSz.x + 20.f;
+        float wHeight = 24.f;
+        float wx = ImGui::GetIO().DisplaySize.x - wWidth - 15.f;
+        float wy = 15.f;
+
+        // Draw sleek semi-transparent box
+        dl->AddRectFilled(ImVec2(wx, wy), ImVec2(wx + wWidth, wy + wHeight), IM_COL32(18, 18, 22, 230), 4.f);
+        dl->AddRect(ImVec2(wx, wy), ImVec2(wx + wWidth, wy + wHeight), IM_COL32(0, 200, 255, 200), 4.f);
+        dl->AddText(ImVec2(wx + 10.f, wy + (wHeight - textSz.y) * 0.5f), IM_COL32(255, 255, 255, 255), watermark);
+
+        // Aimbot FOV Circle around crosshair
+        Config* cfg = g_Cheat->GetConfig();
+        if (cfg->m_aimbotEnabled && cfg->m_aimbotFov > 0.1f) {
+            float cx = ImGui::GetIO().DisplaySize.x * 0.5f;
+            float cy = ImGui::GetIO().DisplaySize.y * 0.5f;
+            // Approximate translation from FOV degrees to screen pixels (using typical 90 FOV ratio)
+            float radius = (cfg->m_aimbotFov / 90.f) * (ImGui::GetIO().DisplaySize.x * 0.5f);
+            dl->AddCircle(ImVec2(cx, cy), radius, IM_COL32(0, 200, 255, 100), 64, 1.f);
+        }
+    }
 
     if (m_menuOpen) RenderMenu();
 

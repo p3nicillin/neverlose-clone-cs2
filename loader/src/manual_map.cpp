@@ -97,6 +97,19 @@ static void __stdcall MMapShellcode(MMapData* d) {
         d->pRtlAddFunctionTable(table, count, reinterpret_cast<DWORD64>(base));
     }
 
+    // ---- 3.5 Execute TLS Callbacks ----
+    if (opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size) {
+        auto* tlsDir = reinterpret_cast<IMAGE_TLS_DIRECTORY64*>(
+            base + opt->DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+        if (tlsDir && tlsDir->AddressOfCallBacks) {
+            auto** callback = reinterpret_cast<PIMAGE_TLS_CALLBACK*>(tlsDir->AddressOfCallBacks);
+            while (*callback) {
+                (*callback)(reinterpret_cast<PVOID>(base), DLL_PROCESS_ATTACH, nullptr);
+                callback++;
+            }
+        }
+    }
+
     // ---- 4. Call DllMain ----
     if (opt->AddressOfEntryPoint) {
         using DllMain_t = BOOL(WINAPI*)(HMODULE, DWORD, LPVOID);

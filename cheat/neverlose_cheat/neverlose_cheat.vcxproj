@@ -117,16 +117,19 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>false</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\vendor\imgui;$(ProjectDir)..\vendor\sol2;$(ProjectDir)..\vendor\lua;$(ProjectDir)..\vendor</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
+      <EntryPoint>_DllMainCRTStartup</EntryPoint>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>d3d11.dll;dxgi.dll;d3dcompiler_47.dll;winhttp.dll</DelayLoadDLLs>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -137,16 +140,22 @@
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>false</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\vendor\imgui;$(ProjectDir)..\vendor\sol2;$(ProjectDir)..\vendor\lua;$(ProjectDir)..\vendor</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <WholeProgramOptimization>true</WholeProgramOptimization>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Windows</SubSystem>
+      <EntryPoint>_DllMainCRTStartup</EntryPoint>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>d3d11.dll;dxgi.dll;d3dcompiler_47.dll;winhttp.dll</DelayLoadDLLs>
     </Link>
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
@@ -171,9 +180,7 @@
     <ClCompile Include="..\src\cheat_revealer.cpp" />
     <ClCompile Include="..\src\config.cpp" />
     <ClCompile Include="..\src\dll_main.cpp" />
-    <ClCompile Include="..\src\legitbot.cpp">
-      <ExcludedFromBuild>true</ExcludedFromBuild>
-    </ClCompile>
+    <ClCompile Include="..\src\legitbot.cpp" />
     <ClCompile Include="..\src\logger.cpp" />
     <ClCompile Include="..\src\lua_api.cpp">
       <ExcludedFromBuild>true</ExcludedFromBuild>
@@ -189,6 +196,7 @@
     <ClCompile Include="..\src\ui_manager.cpp" />
     <ClCompile Include="..\src\utils.cpp" />
     <ClCompile Include="..\src\visuals.cpp" />
+    <ClCompile Include="..\src\convar.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\antiaim.h" />

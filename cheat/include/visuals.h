@@ -78,24 +78,10 @@ public:
     void AddHitMarker(bool headshot);
 
 private:
-    void RenderESP();
-    void RenderChams();
-    void RenderGlow();
     void RenderHitMarkers();
-    void RenderGrenadePrediction();
     void RenderBombTimer();
-    void RenderDefuseTimer();
-    void RenderDamageIndicator();
     void RenderRadar();
     void RenderSpectatorList();
-    void RenderKillFeed();
-
-    void RenderFlags(uintptr_t entity, const Vector2& screenHead, float width, ImColor color);
-    void RenderSkeleton(uintptr_t entity, const Matrix4x4& viewMatrix, ImColor color);
-
-    bool IsVisible(uintptr_t entity, const Vector3& origin);
-    std::string GetPlayerName(uintptr_t entity);
-    std::string GetWeaponName(uintptr_t entity);
 
     std::vector<HitMarker> m_hitMarkers;
 };

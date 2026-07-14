@@ -159,8 +159,13 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         return;
     }
 
-    // -- POST-ORIGINAL: zero punch, handle bhop, clear per-tick fire flag --
+    // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
+        int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
+        int      idx  = ((seq % 150) + 150) % 150;
+        uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
+        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
+
         // No-recoil: zero punch angle + velocity
         if (cfg->m_noRecoil) {
             uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + 0x1490);
@@ -177,6 +182,51 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             if (flags & 1) { // on ground
                 uintptr_t fjAddr = Offsets::Get("dwForceJump");
                 if (fjAddr) { int v = 65537; Memory::Write(fjAddr, &v, 4); }
+            }
+        }
+
+        // Auto-strafe
+        if (cfg->m_autoStrafe) {
+            uint32_t flags = CS2::Read<uint32_t>(lp + 0x3F8);
+            if (!(flags & 1)) { // in air
+                POINT cur; GetCursorPos(&cur);
+                static POINT last = cur;
+                int dx = cur.x - last.x;
+                last = cur;
+                if (pBaseCmd > 0x100000) {
+                    float strafeSide = 0.f;
+                    if (dx < 0) strafeSide = -450.f;
+                    else if (dx > 0) strafeSide = 450.f;
+                    if (strafeSide != 0.f) {
+                        Memory::Write(pBaseCmd + 0x24, &strafeSide, 4); // flSideMove
+                    }
+                }
+            }
+        }
+
+        // Auto-pistol
+        if (cfg->m_autoPistol) {
+            uintptr_t listAddr = Offsets::Get("dwEntityList");
+            uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+            if (entityList) {
+                uintptr_t wep = CS2::GetActiveWeapon(entityList, lp);
+                if (wep) {
+                    int wid = CS2::Read<int>(wep + 0x300);
+                    bool isPistol = (wid >= 1 && wid <= 9) || wid == 30;
+                    if (isPistol) {
+                        static bool toggle = false;
+                        uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
+                        if (buttons & 1ULL) { // IN_ATTACK
+                            if (toggle) {
+                                buttons &= ~1ULL;
+                            }
+                            toggle = !toggle;
+                            Memory::Write(pCmd + 0x38, &buttons, 8);
+                        } else {
+                            toggle = false;
+                        }
+                    }
+                }
             }
         }
 
