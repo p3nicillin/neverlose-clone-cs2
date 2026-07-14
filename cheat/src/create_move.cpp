@@ -140,6 +140,12 @@ static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
     uintptr_t punchOff = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
     float pitch = CS2::Read<float>(punchSvc + punchOff);
     float yaw   = CS2::Read<float>(punchSvc + punchOff + sizeof(float));
+    static bool logged = false;
+    if (!logged) {
+        Logger::Log("Recoil path: input=%p pawn=%p punchSvc=%p pitch=%.3f yaw=%.3f",
+                    pInput, (void*)localPawn, (void*)punchSvc, pitch, yaw);
+        logged = true;
+    }
     if (!std::isfinite(pitch) || !std::isfinite(yaw) ||
         (fabsf(pitch) < 0.001f && fabsf(yaw) < 0.001f)) return;
 
@@ -152,6 +158,17 @@ static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
     if (view.x < -89.f) view.x = -89.f;
     view.z = 0.f;
     Memory::Write((uintptr_t)pInput + 0x0BE0, &view, sizeof(view));
+
+    // Keep the legacy global angle in sync for builds where the command
+    // serializer samples it instead of CCSGOInput::angViewAngles.
+    uintptr_t globalAngles = Offsets::Get("dwViewAngles");
+    if (globalAngles) {
+        Vector3 global = CS2::Read<Vector3>(globalAngles);
+        global.x -= pitch;
+        global.y -= yaw;
+        global.z = 0.f;
+        Memory::Write(globalAngles, &global, sizeof(global));
+    }
 }
 
 // ---- Set or clear IN_ATTACK in CUserCmd ----
