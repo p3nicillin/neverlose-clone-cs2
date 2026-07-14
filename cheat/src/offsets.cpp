@@ -25,16 +25,13 @@ static bool g_Initialized = false;
 // Source: https://github.com/a2x/cs2-dumper  — update when CS2 patches
 // ---------------------------------------------------------------------------
 static const struct { const char* name; uintptr_t rva; } k_ClientRVAs[] = {
-    { "dwLocalPlayerController",  0x237EBA0 },
-    { "dwLocalPlayerPawn",        0x23A4238 },
-    { "dwEntityList",             0x254EE60 },
-    { "dwViewMatrix",             0x23A9340 },
-    { "dwViewAngles",             0x23B9C78 },
-    { "dwForceAttack",            0x1C2D4B0 },
-    { "dwForceJump",              0x1C2D580 },
-    { "dwForceDuck",              0x1C2D5F0 },
-    { "dwSensitivity",            0x23A1228 },
-    { "dwGameRules",              0x23A39D8 },
+    { "dwLocalPlayerController",  0x23807A0 },
+    { "dwLocalPlayerPawn",        0x23A7A78 },
+    { "dwEntityList",             0x254D060 },
+    { "dwViewMatrix",             0x23B0B80 },
+    { "dwViewAngles",             0x23C3D18 },
+    { "dwSensitivity",            0x23A66A8 },
+    { "dwGameRules",              0x23A33F8 },
 };
 
 // Raw struct offsets (NOT added to client.dll base — used as byte offsets into entities)
@@ -65,7 +62,7 @@ static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
     // Ragebot / anti-aim / third-person fallbacks (update via offsets.json/cs2-dumper)
     { "m_vecVelocity",              0x430  },
     { "m_fFlags",                   0x3F4  },
-    { "m_pObserverServices",        0x1518 },  // CCSPlayerPawn -> observer services ptr
+    { "m_pObserverServices",        0x1220 },
     { "m_iObserverMode",            0x40   },  // within CPlayer_ObserverServices
     { "m_flObserverChaseDistance",  0x50   },  // within CPlayer_ObserverServices
     { "m_iCrosshairEntityHandle",   0x15A4 },  // crosshair entity handle

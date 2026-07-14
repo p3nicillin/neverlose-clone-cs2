@@ -34,6 +34,29 @@ void Misc::Update() {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg) return;
 
+    // Keep the per-frame worker state in lockstep with the persisted config.
+    // These members are intentionally mirrored here rather than copied only
+    // at construction time so toggles in the live menu take effect instantly.
+    m_knifeBot = cfg->m_knifeBot;
+    m_voteReveal = cfg->m_voteReveal;
+    m_skinChanger = cfg->m_skinChanger;
+    m_nameSpammer = cfg->m_nameSpammer;
+    m_clanTagSpammer = cfg->m_clanTagSpammer;
+    m_autoAccept = cfg->m_autoAccept;
+    m_rankRevealer = cfg->m_rankRevealer;
+    m_damageReport = cfg->m_damageReport;
+    m_chatSpamBlock = cfg->m_chatSpamBlock;
+    m_messageFilter = cfg->m_messageFilter;
+
+    // Features that depend on engine-side interfaces are kept behind their
+    // own guards. This makes the update loop safe while interfaces/offsets
+    // are unavailable during map loading or after a game patch.
+    if (m_voteReveal) DoVoteReveal();
+    if (m_autoAccept) DoAutoAccept();
+    if (m_rankRevealer) DoRankRevealer();
+    if (m_damageReport) DoDamageReport();
+    if (m_messageFilter) DoMessageFilter();
+
     uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
     if (!localPawnAddr) return;
     uintptr_t localPawn = CS2::Read<uintptr_t>(localPawnAddr);
@@ -149,11 +172,17 @@ void Misc::Update() {
 }
 
 void Misc::DoKnifeBot()       {}
-void Misc::DoVoteReveal()     {}
+void Misc::DoVoteReveal()     {
+    // Vote internals are not exposed by the supported interface layer.
+    // Keep this hook intentionally inert until a verified offset is added.
+}
 void Misc::DoSkinChanger()    {}
 void Misc::DoNameSpammer()    {}
 void Misc::DoClanTagSpammer() {}
-void Misc::DoAutoAccept()     {}
+void Misc::DoAutoAccept()     {
+    // Auto-accept requires a client callback, not a writable boolean. Never
+    // write the placeholder addresses used by external example snippets.
+}
 void Misc::DoRankRevealer()   {}
 void Misc::DoDamageReport()   {}
 void Misc::DoHUDRemoval() {

@@ -291,6 +291,13 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         if (cfg->m_thirdPerson) {
             bool tp = true;
             Memory::Write((uintptr_t)pThis + 0x0A51, &tp, 1);
+            uintptr_t obs = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pObserverServices", 0x1220));
+            if (obs) {
+                int mode = 1;
+                Memory::Write(obs + Offsets::Get("m_iObserverMode", 0x40), &mode, sizeof(mode));
+                float distance = cfg->m_thirdPersonDist;
+                Memory::Write(obs + Offsets::Get("m_flObserverChaseDistance", 0x50), &distance, sizeof(distance));
+            }
         } else {
             bool fp = false;
             Memory::Write((uintptr_t)pThis + 0x0A51, &fp, 1);

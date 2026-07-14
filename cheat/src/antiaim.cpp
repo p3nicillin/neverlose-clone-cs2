@@ -87,15 +87,21 @@ static float NormalizeYaw(float y) {
 // likely open side. Without a real trace API we approximate by facing the
 // inverse of the last movement direction.
 static bool EdgeAdjust(uintptr_t pawn, float& yawOut) {
-    static Vector3 lastPos{};
-    Vector3 pos = CS2::GetAbsOrigin(pawn);
+    static float lastMoveYaw = 0.f;
+    static bool haveMoveYaw = false;
     Vector3 vel = CS2::Read<Vector3>(pawn + Offsets::Get("m_vecVelocity", 0x3F4));
-    bool nearStatic = (fabsf(vel.x) + fabsf(vel.y)) < 2.f;
-    lastPos = pos;
+    const float speed = fabsf(vel.x) + fabsf(vel.y);
+    if (speed > 2.f) {
+        lastMoveYaw = atan2f(vel.y, vel.x) / DEG2RAD_AA;
+        haveMoveYaw = true;
+    }
+    bool nearStatic = speed < 2.f;
     if (!nearStatic) return false;
-    // Face away from the last significant velocity heading (open space).
-    if (fabsf(vel.x) + fabsf(vel.y) > 0.01f) {
-        yawOut = atan2f(-vel.y, -vel.x) / DEG2RAD_AA;
+    // Face away from the last significant movement heading. This gives the
+    // edge mode a useful result when the player reaches a wall and velocity
+    // drops to zero; the old implementation could never reach this branch.
+    if (haveMoveYaw) {
+        yawOut = lastMoveYaw + 180.f;
         return true;
     }
     return false;
@@ -242,7 +248,9 @@ void AntiAim::Apply(CUserCmd* /*cmd*/, bool& sendPacket) {
 }
 
 // -----------------------------------------------------------------
-bool AntiAim::ShouldInvert() { return false; }
+bool AntiAim::ShouldInvert() {
+    return m_invertOnShot && m_shotFired;
+}
 
 Vector3 AntiAim::GetRealAngle() const { return m_realAngle; }
 
@@ -257,7 +265,12 @@ bool AntiAim::IsOnGround() {
     return (flags & 1) != 0;
 }
 
-bool AntiAim::IsEdgeDetected() { return false; }
+bool AntiAim::IsEdgeDetected() {
+    uintptr_t pawn = GetLocalPawn();
+    if (!pawn) return false;
+    float edgeYaw = 0.f;
+    return EdgeAdjust(pawn, edgeYaw);
+}
 
 bool AntiAim::IsInAir() { return !IsOnGround(); }
 

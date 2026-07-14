@@ -461,6 +461,10 @@ void UIManager::RenderMiscTab() {
     ImGui::Checkbox("No Flash",    &config->m_noFlash);
     ImGui::Checkbox("Vote Reveal", &config->m_voteReveal);
     ImGui::Checkbox("Auto Accept", &config->m_autoAccept);
+    ImGui::Checkbox("Knife Bot", &config->m_knifeBot);
+    ImGui::Checkbox("Skin Changer", &config->m_skinChanger);
+    ImGui::Checkbox("Rank Revealer", &config->m_rankRevealer);
+    ImGui::Checkbox("Damage Reports", &config->m_damageReport);
     ImGui::EndChild();
 
     ImGui::SameLine();
@@ -481,6 +485,8 @@ void UIManager::RenderMiscTab() {
     ImGui::BeginChild("MiscRight", ImVec2(0, 0), true);
     ImGui::Checkbox("Chat Spam Block", &config->m_chatSpamBlock);
     ImGui::Checkbox("Message Filter", &config->m_messageFilter);
+    ImGui::Checkbox("Name Spammer", &config->m_nameSpammer);
+    ImGui::Checkbox("Clan Tag Spammer", &config->m_clanTagSpammer);
     ImGui::Checkbox("Auto Pistol", &config->m_autoPistol);
     ImGui::Checkbox("Auto Reload", &config->m_autoReload);
     ImGui::EndChild();

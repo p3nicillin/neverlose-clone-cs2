@@ -122,6 +122,7 @@ void Visuals::Render() {
     // Indicators are independent of ESP. In particular, disabling the ESP
     // panel must not suppress hitmarkers.
     if (cfg->m_hitMarker) RenderHitMarkers();
+    if (cfg->m_grenadePrediction) RenderGrenadePrediction();
     if (!cfg->m_espEnabled) return;
 
     uintptr_t lcAddr   = Offsets::Get("dwLocalPlayerController");
@@ -389,6 +390,58 @@ void Visuals::RenderHitMarkers() {
         }),
         s_markers.end()
     );
+}
+
+void Visuals::RenderGrenadePrediction() {
+    uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    uintptr_t vaAddr = Offsets::Get("dwViewAngles");
+    if (!lpAddr || !listAddr || !vaAddr) return;
+
+    uintptr_t pawn = CS2::Read<uintptr_t>(lpAddr);
+    uintptr_t list = CS2::Read<uintptr_t>(listAddr);
+    if (!pawn || !list) return;
+    uintptr_t weapon = CS2::GetActiveWeapon(list, pawn);
+    if (!weapon) return;
+
+    int weaponId = CS2::Read<int>(weapon + 0x300);
+    if (weaponId < 43 || weaponId > 48) return;
+
+    Vector3 origin = CS2::GetAbsOrigin(pawn);
+    Vector3 ang = CS2::Read<Vector3>(vaAddr);
+    const float pitch = ang.x * (float)M_PI / 180.f;
+    const float yaw = ang.y * (float)M_PI / 180.f;
+    Vector3 pos(origin.x, origin.y, origin.z + 64.f);
+    Vector3 vel(cosf(pitch) * cosf(yaw) * 750.f,
+                cosf(pitch) * sinf(yaw) * 750.f,
+                -sinf(pitch) * 750.f);
+
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    Matrix4x4 vm = CS2::GetViewMatrix();
+    ImVec2 display = ImGui::GetIO().DisplaySize;
+    int sw = display.x > 1.f ? (int)display.x : 1920;
+    int sh = display.y > 1.f ? (int)display.y : 1080;
+    Vector2 previous{};
+    bool havePrevious = false;
+    constexpr float dt = 1.f / 32.f;
+    for (int i = 0; i < 96; ++i) {
+        Vector3 next(pos.x + vel.x * dt,
+                     pos.y + vel.y * dt,
+                     pos.z + vel.z * dt - 0.5f * 800.f * dt * dt);
+        vel.z -= 800.f * dt;
+        Vector2 screen{};
+        if (Utils::WorldToScreen(next, screen, vm, sw, sh)) {
+            if (havePrevious)
+                dl->AddLine(ImVec2(previous.x, previous.y), ImVec2(screen.x, screen.y),
+                            IM_COL32(255, 210, 80, 220), 2.f);
+            previous = screen;
+            havePrevious = true;
+        } else {
+            havePrevious = false;
+        }
+        pos = next;
+        if (pos.z < origin.z) break;
+    }
 }
 
 void Visuals::RenderBombTimer() {

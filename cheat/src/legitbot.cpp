@@ -180,8 +180,21 @@ bool Legitbot::IsMoving() {
 // Check if edge detected
 // -----------------------------------------------------------------
 bool Legitbot::IsEdgeDetected() {
-    // Basic edge detection stub based on player velocity direction
-    return false;
+    uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
+    uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
+    if (!localPawn) return false;
+
+    // A trace-based edge test is not available through the current game
+    // interface layer. Treat a transition from meaningful horizontal movement
+    // to a near-stop as an edge candidate; this is the same bounded heuristic
+    // used by anti-aim and avoids guessing at unverified trace offsets.
+    static bool wasMoving = false;
+    Vector3 velocity = GetLocalVelocity();
+    const float horizontalSpeed = sqrtf(velocity.x * velocity.x + velocity.y * velocity.y);
+    const bool moving = horizontalSpeed > 15.0f;
+    const bool edgeCandidate = wasMoving && horizontalSpeed < 2.0f;
+    wasMoving = moving;
+    return edgeCandidate;
 }
 
 // -----------------------------------------------------------------
