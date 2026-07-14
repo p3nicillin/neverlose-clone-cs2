@@ -34,7 +34,6 @@
 #include "memory.h"
 #include "logger.h"
 #include "game_classes.h"
-#include "no_spread.h"
 #include <windows.h>
 #include <cmath>
 #include <process.h>
@@ -132,6 +131,29 @@ static void ApplyAngle(void* pInput, const Vector3& angle) {
     }
 }
 
+static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
+    if (!pInput || !localPawn) return;
+    uintptr_t punchSvc = CS2::Read<uintptr_t>(
+        localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
+    if (!punchSvc) return;
+
+    uintptr_t punchOff = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
+    float pitch = CS2::Read<float>(punchSvc + punchOff);
+    float yaw   = CS2::Read<float>(punchSvc + punchOff + sizeof(float));
+    if (!std::isfinite(pitch) || !std::isfinite(yaw) ||
+        (fabsf(pitch) < 0.001f && fabsf(yaw) < 0.001f)) return;
+
+    Vector3 view = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
+    view.x -= pitch;
+    view.y -= yaw;
+    while (view.y > 180.f) view.y -= 360.f;
+    while (view.y < -180.f) view.y += 360.f;
+    if (view.x > 89.f) view.x = 89.f;
+    if (view.x < -89.f) view.x = -89.f;
+    view.z = 0.f;
+    Memory::Write((uintptr_t)pInput + 0x0BE0, &view, sizeof(view));
+}
+
 // ---- Set or clear IN_ATTACK in CUserCmd ----
 static void SetAttack(void* pInput, bool attack) {
     uintptr_t inp = (uintptr_t)pInput;
@@ -154,11 +176,10 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
     Config*   cfg    = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     bool      ready  = g_cmCalls >= 64 && active && lp && cfg;
 
-    Vector3 recoilPre{};
     // -- PRE-ORIGINAL: set angle and fire flag in CCSGOInput --
     if (ready) {
         if (cfg->m_ragebotNoRecoil)
-            recoilPre = NoSpread::ApplyRecoilCompensationPre(lp);
+            ApplyRageRecoilToInput(pThis, lp);
         if (g_rbHasTarget) {
             ApplyAngle(pThis, g_rbAimAngle);
             if (g_rbWantFire)
@@ -176,8 +197,6 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
     // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
-        if (cfg->m_ragebotNoRecoil)
-            NoSpread::ApplyRecoilCompensationPost(lp, recoilPre);
         int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
         int      idx  = ((seq % 150) + 150) % 150;
         uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
