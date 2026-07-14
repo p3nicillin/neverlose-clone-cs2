@@ -95,9 +95,20 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
 // Two-pronged: write to angViewAngles (0x0BE0) AND through the CUserCmd chain.
 static void ApplyAngle(void* pInput, const Vector3& angle) {
     uintptr_t inp = (uintptr_t)pInput;
+    Vector3 compensated = angle;
+    Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
+    if (cfg && cfg->m_noRecoil) {
+        uintptr_t lpAddr = Offsets::Get("dwLocalPlayerPawn");
+        uintptr_t lp = lpAddr ? CS2::Read<uintptr_t>(lpAddr) : 0;
+        uintptr_t punch = lp ? CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x1490)) : 0;
+        if (punch) {
+            compensated.x -= CS2::Read<float>(punch + Offsets::Get("m_vecCsViewPunchAngle", 0x48));
+            compensated.y -= CS2::Read<float>(punch + Offsets::Get("m_vecCsViewPunchAngle", 0x48) + 4);
+        }
+    }
 
     // 1. CCSGOInput::angViewAngles — this IS what CS2 uses for bullet direction
-    Memory::Write(inp + 0x0BE0, (void*)&angle, sizeof(Vector3));
+    Memory::Write(inp + 0x0BE0, (void*)&compensated, sizeof(Vector3));
 
     // 2. Also write through the CUserCmd's protobuf view angle chain.
     //    nSequenceNumber at 0x0A74, arrCommands at 0x0250, stride 0x88.
@@ -112,8 +123,8 @@ static void ApplyAngle(void* pInput, const Vector3& angle) {
         uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + 0x30);
         if (pViewAng > 0x100000) {
             // CMsgQAngle floats: try at +0x10 (x/pitch), +0x14 (y/yaw), +0x18 (z)
-            Memory::Write(pViewAng + 0x10, (void*)&angle.x, 4);
-            Memory::Write(pViewAng + 0x14, (void*)&angle.y, 4);
+            Memory::Write(pViewAng + 0x10, (void*)&compensated.x, 4);
+            Memory::Write(pViewAng + 0x14, (void*)&compensated.y, 4);
             float z = 0.f;
             Memory::Write(pViewAng + 0x18, &z, 4);
         }
