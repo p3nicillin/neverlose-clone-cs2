@@ -54,6 +54,7 @@ static volatile int  g_cmCalls = 0;
 static std::shared_mutex g_stateLock;
 static bool    g_rbHasTarget = false;
 static bool    g_rbWantFire  = false;
+static bool    g_rbAutoStop  = false;
 static Vector3 g_rbAimAngle  = {};
 static bool    g_aaActive    = false;
 static Vector3 g_aaFakeAngle = {};
@@ -64,17 +65,19 @@ static bool ValidAngle(const Vector3& a) {
            a.y >= -180.0f && a.y <= 180.0f;
 }
 
-void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire) {
+void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire, bool autoStop) {
     if (!ValidAngle(angle)) { ClearRagebotAim(); return; }
     std::unique_lock lock(g_stateLock);
     g_rbAimAngle  = angle;
     g_rbHasTarget = true;
     g_rbWantFire  = fire;
+    g_rbAutoStop  = autoStop;
 }
 void CreateMoveHook::ClearRagebotAim() {
     std::unique_lock lock(g_stateLock);
     g_rbHasTarget = false;
     g_rbWantFire  = false;
+    g_rbAutoStop  = false;
 }
 void CreateMoveHook::SetAntiAim(const Vector3& angle) {
     if (!ValidAngle(angle)) { ClearAntiAim(); return; }
@@ -90,6 +93,7 @@ void CreateMoveHook::ClearAntiAim() {
 struct CreateMoveState {
     bool rbHasTarget;
     bool rbWantFire;
+    bool rbAutoStop;
     Vector3 rbAimAngle;
     bool aaActive;
     Vector3 aaFakeAngle;
@@ -97,7 +101,7 @@ struct CreateMoveState {
 
 static CreateMoveState SnapshotState() {
     std::shared_lock lock(g_stateLock);
-    return {g_rbHasTarget, g_rbWantFire, g_rbAimAngle, g_aaActive, g_aaFakeAngle};
+    return {g_rbHasTarget, g_rbWantFire, g_rbAutoStop, g_rbAimAngle, g_aaActive, g_aaFakeAngle};
 }
 
 // ---- Trampoline helpers ----
@@ -244,6 +248,10 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
     // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
+        int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
+        int      idx  = ((seq % 150) + 150) % 150;
+        uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
+        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
         // The original call may rebuild or sanitize the command and overwrite
         // the pre-call angle. Apply the final aim after it returns.
         const CreateMoveState state = SnapshotState();
@@ -251,14 +259,17 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             ApplyAngle(pThis, state.rbAimAngle);
             if (state.rbWantFire)
                 SetAttack(pThis, true);
+            if (state.rbAutoStop && pBaseCmd > 0x100000) {
+                float zero = 0.f;
+                Memory::Write(pBaseCmd + 0x20, &zero, sizeof(zero)); // forward move
+                Memory::Write(pBaseCmd + 0x24, &zero, sizeof(zero)); // side move
+            }
         } else if (state.aaActive && cfg->m_antiaimEnabled) {
             ApplyAngle(pThis, state.aaFakeAngle);
         }
 
-        int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
-        int      idx  = ((seq % 150) + 150) % 150;
-        uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
-        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
+        // pCmd/pBaseCmd were captured before SetAttack, which may share the
+        // command storage at +0x38 on some builds.
 
         // No-recoil: zero punch angle + velocity
         if (cfg->m_ragebotNoRecoil) {

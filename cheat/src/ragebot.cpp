@@ -32,6 +32,7 @@
 #endif
 static const float RAD = (float)(M_PI / 180.0);
 static bool g_rageMouseDown = false;
+static uintptr_t g_lastRageWeapon = 0;
 
 static void ReleaseRageMouse() {
     if (!g_rageMouseDown) return;
@@ -365,6 +366,13 @@ void Ragebot::Run(CUserCmd*) {
     uintptr_t list = CS2::Read<uintptr_t>(listAddr);
     if (!lp || !lc || !list) return;
 
+    uintptr_t activeWeapon = CS2::GetActiveWeapon(list, lp);
+    if (activeWeapon != g_lastRageWeapon) {
+        ReleaseRageMouse();
+        CreateMoveHook::ClearRagebotAim();
+        g_lastRageWeapon = activeWeapon;
+    }
+
     if (CS2::GetHealth(lp) <= 0) {
         ReleaseRageMouse();
         CreateMoveHook::ClearRagebotAim();
@@ -435,7 +443,7 @@ void Ragebot::Run(CUserCmd*) {
                 inp.mi.dwFlags = MOUSEEVENTF_RIGHTUP;   SendInput(1, &inp, sizeof(inp));
                 lastScope = now;
             }
-            CreateMoveHook::SetRagebotAim(bestAim, false);
+            CreateMoveHook::SetRagebotAim(bestAim, false, false);
             m_lastTarget = target.pawn; return;
         }
     }
@@ -447,7 +455,7 @@ void Ragebot::Run(CUserCmd*) {
 
     // ---- Pass aim + fire intent to CreateMove hook ----
     bool wantFire = cfg->m_ragebotAutoFire || (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
-    CreateMoveHook::SetRagebotAim(bestAim, wantFire);
+    CreateMoveHook::SetRagebotAim(bestAim, wantFire, cfg->m_ragebotAutoStop);
     if (wantFire) {
         if (!g_rageMouseDown) {
             INPUT inp{};
