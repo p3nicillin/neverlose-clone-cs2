@@ -323,6 +323,8 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
 // Selects best target, stores aim angle; CreateMove hook applies it.
 // ====================================================================
 void Ragebot::Run(CUserCmd*) {
+    static DWORD lastDiag = 0;
+    const DWORD nowDiag = GetTickCount();
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_ragebotEnabled) {
         CreateMoveHook::ClearRagebotAim();
@@ -360,6 +362,13 @@ void Ragebot::Run(CUserCmd*) {
 
     // Call premium Target Selector
     Target target = SelectTarget(list, lc, lp, eye, va, myTeam);
+
+    if (nowDiag - lastDiag > 2000) {
+        Logger::Log("Rage state: lp=%p team=%d target=%p fov=%.2f cm=%s",
+                    (void*)lp, myTeam, (void*)target.pawn, target.fov,
+                    CreateMoveHook::IsActive() ? "active" : "inactive");
+        lastDiag = nowDiag;
+    }
 
     if (!target.valid) {
         CreateMoveHook::ClearRagebotAim();
@@ -403,6 +412,10 @@ void Ragebot::Run(CUserCmd*) {
     // ---- Pass aim + fire intent to CreateMove hook ----
     bool wantFire = cfg->m_ragebotAutoFire || (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
     CreateMoveHook::SetRagebotAim(bestAim, wantFire);
+    // Keep a fallback for builds where the CreateMove serializer does not
+    // consume the pending shared state.
+    uintptr_t vaWrite = Offsets::Get("dwViewAngles");
+    if (vaWrite) Memory::Write(vaWrite, &bestAim, sizeof(bestAim));
     if (wantFire) {
         // Fallback for builds where the CUserCmd button layout differs.
         uintptr_t attack = Offsets::Get("dwForceAttack");
