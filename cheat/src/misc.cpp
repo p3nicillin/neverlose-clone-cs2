@@ -96,6 +96,9 @@ void Misc::Update() {
     if (cfg->m_scopeRemoval)
         DoScopeRemoval();
 
+    if (cfg->m_hudRemoval)
+        DoHUDRemoval();
+
     if (cfg->m_skyboxRemoval)
         DoSkyboxRemoval();
 
@@ -153,7 +156,11 @@ void Misc::DoClanTagSpammer() {}
 void Misc::DoAutoAccept()     {}
 void Misc::DoRankRevealer()   {}
 void Misc::DoDamageReport()   {}
-void Misc::DoHUDRemoval()     {}
+void Misc::DoHUDRemoval() {
+    static bool applied = false;
+    if (!applied)
+        applied = ConVar::SetInt("cl_drawhud", 0);
+}
 void Misc::DoSkyboxRemoval() {
     // r_3dsky controls the 3D skybox pass in CS2. Apply once and let the
     // engine keep the value; repeatedly writing convars can cause needless
