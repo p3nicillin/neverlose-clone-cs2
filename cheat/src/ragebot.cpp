@@ -90,8 +90,11 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
     if (!wh || wh == 0xFFFFFFFF) return false;
     uintptr_t weap = CS2::HandleToPtr(entityList, wh);
     if (!weap) return false;
-                int wid = CS2::Read<int>(weap + 0x300);
-    return (wid == 11 || wid == 12 || wid == 13 || wid == 14); // AWP, SSG08, SCAR-20, G3SG1
+    int wid = CS2::Read<int>(weap + 0x300);
+    // CS2 weapon definition indexes: AWP=9, G3SG1=11, SCAR-20=38,
+    // SSG08=40. The previous table used legacy/incorrect IDs, so quick-scope
+    // never armed for the actual sniper weapons.
+    return (wid == 9 || wid == 11 || wid == 38 || wid == 40);
 }
 
 bool Ragebot::IsVisible(uintptr_t, uintptr_t targetPawn, const Vector3& srcEye, const Vector3&) {

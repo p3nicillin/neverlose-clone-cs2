@@ -236,6 +236,17 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
     // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
+        // The original call may rebuild or sanitize the command and overwrite
+        // the pre-call angle. Apply the final aim after it returns.
+        const CreateMoveState state = SnapshotState();
+        if (state.rbHasTarget) {
+            ApplyAngle(pThis, state.rbAimAngle);
+            if (state.rbWantFire)
+                SetAttack(pThis, true);
+        } else if (state.aaActive && cfg->m_antiaimEnabled) {
+            ApplyAngle(pThis, state.aaFakeAngle);
+        }
+
         int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
         int      idx  = ((seq % 150) + 150) % 150;
         uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
