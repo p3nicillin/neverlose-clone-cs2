@@ -83,13 +83,13 @@ Ragebot::EntityState& Ragebot::StateFor(int idx) {
 }
 
 bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
-    uintptr_t svc = CS2::Read<uintptr_t>(localPawn + 0x11E0);
+    uintptr_t svc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pWeaponServices", 0x1208));
     if (!svc) return false;
     uint32_t wh = CS2::Read<uint32_t>(svc + 0x60);
     if (!wh || wh == 0xFFFFFFFF) return false;
     uintptr_t weap = CS2::HandleToPtr(entityList, wh);
     if (!weap) return false;
-    int wid = CS2::Read<int>(weap + 0x300);
+                int wid = CS2::Read<int>(weap + 0x300);
     return (wid == 11 || wid == 12 || wid == 13 || wid == 14); // AWP, SSG08, SCAR-20, G3SG1
 }
 
@@ -393,7 +393,7 @@ void Ragebot::Run(CUserCmd*) {
 
     // ---- Auto-scope ----
     if (cfg->m_ragebotQuickScope && IsSniper(list, lp)) {
-        bool localScoped = CS2::Read<bool>(lp + 0x1428);
+        bool localScoped = CS2::Read<bool>(lp + Offsets::Get("m_bIsScoped", 0x1C70));
         if (!localScoped) {
             static DWORD lastScope = 0;
             DWORD now = GetTickCount();
@@ -417,5 +417,13 @@ void Ragebot::Run(CUserCmd*) {
     // ---- Pass aim + fire intent to CreateMove hook ----
     bool wantFire = cfg->m_ragebotAutoFire || (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
     CreateMoveHook::SetRagebotAim(bestAim, wantFire);
+    if (wantFire) {
+        // Fallback for builds where the CUserCmd button layout differs.
+        uintptr_t attack = Offsets::Get("dwForceAttack");
+        if (attack) {
+            int fire = 65537;
+            Memory::Write(attack, &fire, sizeof(fire));
+        }
+    }
     m_lastTarget = target.pawn;
 }

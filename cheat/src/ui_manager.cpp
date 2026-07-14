@@ -282,7 +282,8 @@ void UIManager::RenderRagebotTab() {
     ImGui::BeginChild("RagebotLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
     ImGui::Checkbox("Ragebot Enabled", &config->m_ragebotEnabled);
     ImGui::SliderFloat("FOV", &config->m_ragebotFOV, 0.0f, 180.0f, "%.0f deg");
-    ImGui::SliderFloat("Smooth", &config->m_ragebotSmooth, 0.0f, 10.0f, "%.1f (>=1 instant)");
+    // Rage aim is intentionally instant; smoothing belongs to legitbot.
+    config->m_ragebotSmooth = 1.0f;
     ImGui::SliderFloat("Hitchance", &config->m_ragebotHitchance, 0.0f, 100.0f, "%.0f%%");
     ImGui::SliderFloat("Min Damage", &config->m_ragebotMinDamage, 0.0f, 100.0f, "%.0f hp");
     ImGui::Checkbox("Auto Fire", &config->m_ragebotAutoFire);
