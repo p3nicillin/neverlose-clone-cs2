@@ -70,7 +70,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(ProjectDir)..\..\outputs\</OutDir>
-    <IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir>
+    <IntDir>$(ProjectDir)..\..\outputs\build\$(ProjectName)\$(Configuration)\</IntDir>
     <WDKDir>C:\Program Files (x86)\Windows Kits\10\</WDKDir>
     <WDKVer>10.0.26100.0</WDKVer>
     <GenerateManifest>false</GenerateManifest>
@@ -80,7 +80,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(ProjectDir)..\..\outputs\</OutDir>
-    <IntDir>$(SolutionDir)build\$(ProjectName)\$(Configuration)\</IntDir>
+    <IntDir>$(ProjectDir)..\..\outputs\build\$(ProjectName)\$(Configuration)\</IntDir>
     <WDKDir>C:\Program Files (x86)\Windows Kits\10\</WDKDir>
     <WDKVer>10.0.26100.0</WDKVer>
     <GenerateManifest>false</GenerateManifest>
