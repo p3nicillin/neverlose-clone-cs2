@@ -68,9 +68,10 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup><ProgramDatabaseFile>$(IntDir)$(TargetName).pdb</ProgramDatabaseFile></PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(ProjectDir)..\..\outputs\</OutDir>
-    <IntDir>$(ProjectDir)..\..\outputs\build\$(ProjectName)\$(Configuration)\</IntDir>
+    <IntDir>$(ProjectDir)..\..\build\$(ProjectName)\$(Configuration)\</IntDir>
     <WDKDir>C:\Program Files (x86)\Windows Kits\10\</WDKDir>
     <WDKVer>10.0.26100.0</WDKVer>
     <GenerateManifest>false</GenerateManifest>
@@ -80,7 +81,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(ProjectDir)..\..\outputs\</OutDir>
-    <IntDir>$(ProjectDir)..\..\outputs\build\$(ProjectName)\$(Configuration)\</IntDir>
+    <IntDir>$(ProjectDir)..\..\build\$(ProjectName)\$(Configuration)\</IntDir>
     <WDKDir>C:\Program Files (x86)\Windows Kits\10\</WDKDir>
     <WDKVer>10.0.26100.0</WDKVer>
     <GenerateManifest>false</GenerateManifest>
