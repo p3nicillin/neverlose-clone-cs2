@@ -66,7 +66,7 @@ void Aimbot::Update() {
     Vector3 origin  = CS2::GetAbsOrigin(localPawn);
     Vector3 eyePos  = { origin.x, origin.y, origin.z + 64.f };
     Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
-    int     myTeam  = CS2::GetTeam(localCtrl);
+    int     myTeam  = CS2::GetTeam(localPawn);
 
     uintptr_t bestPawn = 0;
     Vector3   bestHead = {};
@@ -75,11 +75,11 @@ void Aimbot::Update() {
     for (int i = 1; i <= 64; ++i) {
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
         if (!ctrl || ctrl == localCtrl) continue;
-        int team = CS2::GetTeam(ctrl);
-        if (team != 2 && team != 3) continue;
-        if (!cfg->m_aimbotTeamcheck && team == myTeam) continue;
         uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
         if (!pawn) continue;
+        int team = CS2::GetTeam(pawn);
+        if (team != 2 && team != 3) continue;
+        if (!cfg->m_aimbotTeamcheck && team == myTeam) continue;
         int hp = CS2::GetHealth(pawn);
         if (hp <= 0 || hp > 100) continue;
         Vector3 pos = CS2::GetAbsOrigin(pawn);

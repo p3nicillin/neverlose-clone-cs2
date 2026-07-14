@@ -150,18 +150,17 @@ void Ragebot::UpdateRecords(uintptr_t entityList, uintptr_t localCtrl) {
     uintptr_t localPawn = CS2::GetPawn(entityList, localCtrl);
     if (!localPawn) return;
 
-    int localTeam = CS2::GetTeam(localCtrl);
+    int localTeam = CS2::GetTeam(localPawn);
 
     for (int i = 1; i <= 64; ++i) {
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
         if (!ctrl || ctrl == localCtrl) continue;
 
-        int team = CS2::GetTeam(ctrl);
-        if (team != 2 && team != 3) continue;
-        if (team == localTeam) continue;
-
         uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
         if (!pawn) continue;
+        int team = CS2::GetTeam(pawn);
+        if (team != 2 && team != 3) continue;
+        if (team == localTeam) continue;
 
         int hp = CS2::GetHealth(pawn);
         if (hp <= 0 || hp > 100) continue;
@@ -256,12 +255,11 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
         if (!ctrl || ctrl == localCtrl) continue;
 
-        int team = CS2::GetTeam(ctrl);
-        if (team != 2 && team != 3) continue;
-        if (team == myTeam) continue;
-
         uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
         if (!pawn || pawn == localPawn) continue;
+        int team = CS2::GetTeam(pawn);
+        if (team != 2 && team != 3) continue;
+        if (team == myTeam) continue;
 
         int hp = CS2::GetHealth(pawn);
         if (hp <= 0 || hp > 100) continue;
@@ -372,7 +370,7 @@ void Ragebot::Run(CUserCmd*) {
     Vector3 eye = { origin.x, origin.y, origin.z + (crouching ? 46.f : 64.f) };
 
     Vector3 va = CS2::Read<Vector3>(vaAddr);
-    int myTeam = CS2::GetTeam(lc);
+    int myTeam = CS2::GetTeam(lp);
 
     // Call premium Target Selector
     Target target = SelectTarget(list, lc, lp, eye, va, myTeam);

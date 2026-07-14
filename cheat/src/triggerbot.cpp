@@ -39,19 +39,18 @@ void Triggerbot::Update() {
 
     Vector3 eyePos  = { origin.x, origin.y, origin.z + 64.f };
     Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
-    int     myTeam  = CS2::GetTeam(localCtrl);
+    int     myTeam  = CS2::GetTeam(localPawn);
 
     bool onTarget = false;
 
     for (int i = 1; i <= 64 && !onTarget; ++i) {
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
         if (!ctrl || ctrl == localCtrl) continue;
-        int team = CS2::GetTeam(ctrl);
-        if (team != 2 && team != 3) continue;
-        if (team == myTeam) continue;
-
         uintptr_t pawn = CS2::GetPawn(entityList, ctrl);
         if (!pawn) continue;
+        int team = CS2::GetTeam(pawn);
+        if (team != 2 && team != 3) continue;
+        if (team == myTeam) continue;
         int eh = CS2::GetHealth(pawn);
         if (eh <= 0 || eh > 100) continue;
 
