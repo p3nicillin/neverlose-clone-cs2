@@ -400,10 +400,6 @@ void Ragebot::Run(CUserCmd*) {
     // ---- Pass aim + fire intent to CreateMove hook ----
     bool wantFire = cfg->m_ragebotAutoFire || (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
     CreateMoveHook::SetRagebotAim(bestAim, wantFire);
-    // Keep a fallback for builds where the CreateMove serializer does not
-    // consume the pending shared state.
-    uintptr_t vaWrite = Offsets::Get("dwViewAngles");
-    if (vaWrite) Memory::Write(vaWrite, &bestAim, sizeof(bestAim));
     if (wantFire) {
         if (!g_rageMouseDown) {
             INPUT inp{};
