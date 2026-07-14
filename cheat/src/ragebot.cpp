@@ -99,7 +99,7 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
     if (!wh || wh == 0xFFFFFFFF) return false;
     uintptr_t weap = CS2::HandleToPtr(entityList, wh);
     if (!weap) return false;
-    int wid = CS2::Read<int>(weap + 0x300);
+    int wid = CS2::GetWeaponDefinitionIndex(weap);
     static DWORD lastWeaponDiag = 0;
     DWORD now = GetTickCount();
     if (now - lastWeaponDiag > 2000) {
