@@ -48,6 +48,7 @@ static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
     { "m_pClippingWeapon",      0x4D8  },
     { "m_pWeaponServices",       0x1208 },
     { "m_hPlayerPawn",          0x914  },
+    { "m_iszPlayerName",        0x6F4  },
     { "m_sSanitizedPlayerName", 0x868  },
     { "m_iShotsFired",          0x15A4 },
     // Punch angle: two-level access confirmed from cs2-dumper client_dll.json

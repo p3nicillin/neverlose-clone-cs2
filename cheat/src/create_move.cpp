@@ -34,6 +34,7 @@
 #include "memory.h"
 #include "logger.h"
 #include "game_classes.h"
+#include "no_spread.h"
 #include <windows.h>
 #include <cmath>
 #include <process.h>
@@ -153,8 +154,11 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
     Config*   cfg    = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     bool      ready  = g_cmCalls >= 64 && active && lp && cfg;
 
+    Vector3 recoilPre{};
     // -- PRE-ORIGINAL: set angle and fire flag in CCSGOInput --
     if (ready) {
+        if (cfg->m_noRecoil)
+            recoilPre = NoSpread::ApplyRecoilCompensationPre(lp);
         if (g_rbHasTarget) {
             ApplyAngle(pThis, g_rbAimAngle);
             if (g_rbWantFire)
@@ -172,6 +176,8 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
     // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
+        if (cfg->m_noRecoil)
+            NoSpread::ApplyRecoilCompensationPost(lp, recoilPre);
         int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
         int      idx  = ((seq % 150) + 150) % 150;
         uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;

@@ -61,7 +61,20 @@ inline Vector3 GetAbsOrigin(uintptr_t pawn) {
 inline int   GetHealth   (uintptr_t pawn)       { return Read<int>    (pawn + Offsets::Get("m_iHealth",   0x33C)); }
 inline int   GetTeam     (uintptr_t controller) { return Read<int>    (controller + Offsets::Get("m_iTeamNum", 0x3CB)); }
 inline uint8_t GetLife   (uintptr_t pawn)       { return Read<uint8_t>(pawn + Offsets::Get("m_lifeState", 0x338)); }
-inline std::string GetName(uintptr_t controller){ return ReadString(controller + Offsets::Get("m_sSanitizedPlayerName", 0x700)); }
+inline std::string GetName(uintptr_t controller) {
+    auto clean = [](std::string s) {
+        while (!s.empty() && (s.back() == '\0' || s.back() == '\n' || s.back() == '\r')) s.pop_back();
+        size_t begin = 0;
+        while (begin < s.size() && (unsigned char)s[begin] < 32) ++begin;
+        if (begin) s.erase(0, begin);
+        for (char c : s)
+            if ((unsigned char)c < 32 || (unsigned char)c > 126) return std::string();
+        return s;
+    };
+    std::string name = clean(ReadString(controller + Offsets::Get("m_sSanitizedPlayerName", 0x868), 128));
+    if (!name.empty()) return name;
+    return clean(ReadString(controller + Offsets::Get("m_iszPlayerName", 0x6F4), 128));
+}
 
 // Active weapon: pawn → m_pWeaponServices(0x11E0) → m_hActiveWeapon(0x60)
 inline uintptr_t GetActiveWeapon(uintptr_t listBase, uintptr_t pawn) {
