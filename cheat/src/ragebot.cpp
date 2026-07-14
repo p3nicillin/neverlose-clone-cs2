@@ -100,6 +100,14 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
     uintptr_t weap = CS2::HandleToPtr(entityList, wh);
     if (!weap) return false;
     int wid = CS2::Read<int>(weap + 0x300);
+    static DWORD lastWeaponDiag = 0;
+    DWORD now = GetTickCount();
+    if (now - lastWeaponDiag > 2000) {
+        bool scoped = CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1C70));
+        Logger::Log("Rage weapon: ptr=%p id=%d scoped=%s", (void*)weap, wid,
+                    scoped ? "yes" : "no");
+        lastWeaponDiag = now;
+    }
     // CS2 weapon definition indexes: AWP=9, G3SG1=11, SCAR-20=38,
     // SSG08=40. The previous table used legacy/incorrect IDs, so quick-scope
     // never armed for the actual sniper weapons.
@@ -288,11 +296,17 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         aimPoint.z += 72.f; // Fallback
         bool useBaim = false;
 
-        // Use the stable upper-body/head-height point as the fallback because
-        // bone indices vary across current bot/player models. When a recent
-        // record is available, prefer it: this makes the existing backtrack
-        // setting affect the actual aim point instead of only collecting data.
+        // Use the stable upper-body/head-height point only as a fallback. The
+        // record updater already validates bone 5 against the pawn origin, so
+        // reuse that same validated bone path for the live target too.
         aimPoint.z = pos.z + 64.f;
+        uintptr_t bones = CS2::GetBoneArray(pawn);
+        if (bones) {
+            Vector3 head = CS2::GetBonePos(bones, 5);
+            if (Dist3D(head, pos) < 300.f &&
+                std::isfinite(head.x) && std::isfinite(head.y) && std::isfinite(head.z))
+                aimPoint = head;
+        }
         if (cfg->m_ragebotBacktrack) {
             Vector3 historical{};
             if (GetBacktrackPoint(i, cfg->m_ragebotBacktrackTime, historical))
