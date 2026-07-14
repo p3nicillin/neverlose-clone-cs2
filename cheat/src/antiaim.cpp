@@ -6,7 +6,8 @@
 // Live settings are read from Config (the UI edits cfg->m_antiaim*); the
 // AntiAim member fields are kept for API compatibility.
 //
-// Yaw modes (cfg->m_antiaimMode): 0=spin 1=backwards 2=180 3=jitter 4=sideways
+// Yaw modes follow AntiAim::Mode / the UI combo: 0=backward, 1=jitter,
+// 2=spin, 3=sideways, 4=desync, 5=3-way, 6=custom.
 // Pitch: cfg->m_antiaimPitch (degrees); jitter handled per-frame.
 // Desync: writes the "fake" (visual) yaw to dwViewAngles and stores a
 //   separate "real" yaw rotated by cfg->m_antiaimDesyncAmount. True desync
@@ -112,9 +113,16 @@ static bool EdgeAdjust(uintptr_t pawn, float& yawOut) {
 // -----------------------------------------------------------------
 void AntiAim::Apply(CUserCmd* /*cmd*/, bool& sendPacket) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-    if (!cfg || !cfg->m_antiaimEnabled) return;
+    // Clear the hook-side latch on every early exit. Otherwise disabling AA,
+    // opening the menu, dying, or changing movement state can leave the last
+    // fake angle active in CreateMove for subsequent ticks.
+    const auto clearApplied = []() { CreateMoveHook::ClearAntiAim(); };
+    if (!cfg || !cfg->m_antiaimEnabled) { clearApplied(); return; }
     // Never interfere when menu is open
-    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) return;
+    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) {
+        clearApplied();
+        return;
+    }
 
     // Sync UI settings into members (keeps GetFakeAngle()/etc. coherent)
     m_mode            = cfg->m_antiaimMode;
@@ -135,17 +143,17 @@ void AntiAim::Apply(CUserCmd* /*cmd*/, bool& sendPacket) {
     m_pitchMode       = cfg->m_antiaimPitchMode;
 
     uintptr_t pawn = GetLocalPawn();
-    if (!pawn) return;
-    if (CS2::GetHealth(pawn) <= 0) return;
+    if (!pawn) { clearApplied(); return; }
+    if (CS2::GetHealth(pawn) <= 0) { clearApplied(); return; }
 
     // Ground/air conditions
     uint32_t flags = CS2::Read<uint32_t>(pawn + Offsets::Get("m_fFlags", 0x3F8));
     bool onGround = (flags & 1) != 0;
-    if (!m_onAir   && !onGround) return;
-    if (!m_onGround && onGround) return;
+    if (!m_onAir   && !onGround) { clearApplied(); return; }
+    if (!m_onGround && onGround) { clearApplied(); return; }
 
     uintptr_t vaAddr = Offsets::Get("dwViewAngles");
-    if (!vaAddr) return;
+    if (!vaAddr) { clearApplied(); return; }
 
     Vector3 va = CS2::Read<Vector3>(vaAddr);
     m_realAngle = va;
