@@ -119,6 +119,7 @@ void Config::LoadDefaultConfig() {
     m_legitbotAutoScope = true;
     m_legitbotQuickStop = false;
     m_legitbotQuickStopSpeed = 50.0f;
+    m_legitbotRcs = 0.0f;
     m_legitbotTriggerbotKey = 0x01; // Mouse left
     m_legitbotBunnyHopKey = 0x20; // Space
 
@@ -267,6 +268,7 @@ bool Config::Save(const std::string& name) {
         j["legitbot"]["auto_scope"] = m_legitbotAutoScope;
         j["legitbot"]["quick_stop"] = m_legitbotQuickStop;
         j["legitbot"]["quick_stop_speed"] = m_legitbotQuickStopSpeed;
+        j["legitbot"]["rcs"] = m_legitbotRcs;
         j["legitbot"]["triggerbot_key"] = m_legitbotTriggerbotKey;
         j["legitbot"]["bunny_hop_key"] = m_legitbotBunnyHopKey;
 
@@ -443,6 +445,7 @@ bool Config::Load(const std::string& name) {
             if (l.contains("auto_scope")) m_legitbotAutoScope = l["auto_scope"];
             if (l.contains("quick_stop")) m_legitbotQuickStop = l["quick_stop"];
             if (l.contains("quick_stop_speed")) m_legitbotQuickStopSpeed = l["quick_stop_speed"];
+            if (l.contains("rcs")) m_legitbotRcs = l["rcs"];
             if (l.contains("triggerbot_key")) m_legitbotTriggerbotKey = l["triggerbot_key"];
             if (l.contains("bunny_hop_key")) m_legitbotBunnyHopKey = l["bunny_hop_key"];
         }

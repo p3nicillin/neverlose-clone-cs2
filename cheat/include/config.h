@@ -72,6 +72,7 @@ public:
     bool m_legitbotAutoPistol;
     bool m_legitbotAutoScope;
     bool m_legitbotQuickStop;
+    float m_legitbotRcs;
     float m_legitbotQuickStopSpeed;
     int m_legitbotTriggerbotKey;
     int m_legitbotBunnyHopKey;

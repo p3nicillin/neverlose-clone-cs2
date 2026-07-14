@@ -302,6 +302,10 @@ void UIManager::RenderRagebotTab() {
     ImGui::SliderFloat("Multipoint Scale", &config->m_ragebotMultipointScale, 0.0f, 1.0f);
     ImGui::Checkbox("Resolver", &config->m_ragebotResolver);
     ImGui::Combo("Resolver Mode", &config->m_ragebotResolverMode, "Auto\0LBY\0History\0");
+    ImGui::Separator();
+    ImGui::Text("Rage weapon control");
+    ImGui::Checkbox("No Recoil", &config->m_noRecoil);
+    ImGui::Checkbox("No Spread", &config->m_noSpread);
     ImGui::EndChild();
 }
 
@@ -329,6 +333,7 @@ void UIManager::RenderLegitbotTab() {
     ImGui::Checkbox("Enabled##la",   &config->m_aimbotEnabled);
     ImGui::SliderFloat("FOV##la",    &config->m_aimbotFov,    0.5f, 20.f, "%.1f deg");
     ImGui::SliderFloat("Smooth##la", &config->m_aimbotSmooth, 2.f,  20.f, "%.1f");
+    ImGui::SliderFloat("RCS##la", &config->m_legitbotRcs, 0.f, 100.f, "%.0f%%");
     ImGui::Checkbox("No teamkill##la", &config->m_aimbotTeamcheck);
     ImGui::Spacing();
     ImGui::TextColored(ImVec4(1,1,0,1), "Hold LMB to activate");
@@ -449,9 +454,6 @@ void UIManager::RenderMiscTab() {
     ImGui::Spacing();
     ImGui::Text("Combat");
     ImGui::Separator();
-    ImGui::Checkbox("No Recoil", &config->m_noRecoil);
-    ImGui::Checkbox("No Spread", &config->m_noSpread);
-    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1),"Separate recoil and spread controls");
     ImGui::Spacing();
     ImGui::Text("Utility");
     ImGui::Separator();

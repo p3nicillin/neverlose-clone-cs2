@@ -105,6 +105,14 @@ void Aimbot::Update() {
     newAng.x = viewAng.x + dPitch / smooth;
     newAng.y = viewAng.y + dYaw   / smooth;
     newAng.z = 0.f;
+    if (cfg->m_legitbotRcs > 0.f) {
+        uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
+        if (punchSvc) {
+            float scale = cfg->m_legitbotRcs * 0.01f;
+            newAng.x -= CS2::Read<float>(punchSvc + Offsets::Get("m_vecCsViewPunchAngle", 0x48)) * scale;
+            newAng.y -= CS2::Read<float>(punchSvc + Offsets::Get("m_vecCsViewPunchAngle", 0x48) + 4) * scale;
+        }
+    }
     newAng   = NormAngles(newAng);
 
     Memory::Write(viewAngAddr, &newAng, sizeof(newAng));
