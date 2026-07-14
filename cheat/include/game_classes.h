@@ -65,7 +65,7 @@ inline std::string GetName(uintptr_t controller){ return ReadString(controller +
 
 // Active weapon: pawn → m_pWeaponServices(0x11E0) → m_hActiveWeapon(0x60)
 inline uintptr_t GetActiveWeapon(uintptr_t listBase, uintptr_t pawn) {
-    uintptr_t svc = Read<uintptr_t>(pawn + 0x11E0);
+    uintptr_t svc = Read<uintptr_t>(pawn + Offsets::Get("m_pWeaponServices", 0x1208));
     if (!svc) return 0;
     uint32_t h = Read<uint32_t>(svc + 0x60);
     return h ? HandleToPtr(listBase, h) : 0;

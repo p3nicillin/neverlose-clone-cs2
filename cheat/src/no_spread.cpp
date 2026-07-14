@@ -129,7 +129,7 @@ bool NoSpread::CheckSpreadHit(uintptr_t localPawn, uintptr_t targetPawn,
     uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
     if (!entityList) return false;
 
-    uintptr_t wSvc = CS2::Read<uintptr_t>(localPawn + 0x11E0);
+    uintptr_t wSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pWeaponServices", 0x1208));
     uint32_t  wH   = wSvc ? CS2::Read<uint32_t>(wSvc + 0x60) : 0;
     uintptr_t wep  = wH ? CS2::HandleToPtr(entityList, wH) : 0;
     if (!wep) return false;
@@ -197,7 +197,7 @@ bool NoSpread::CheckSpreadHit(uintptr_t localPawn, uintptr_t targetPawn,
 
 // ---- Recoil compensation (pure viewangle subtraction, no punch zeroing) ----
 Vector3 NoSpread::ApplyRecoilCompensationPre(uintptr_t localPawn) {
-    uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
+    uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
     float px = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
     float py = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
 
@@ -214,7 +214,7 @@ Vector3 NoSpread::ApplyRecoilCompensationPre(uintptr_t localPawn) {
 }
 
 void NoSpread::ApplyRecoilCompensationPost(uintptr_t localPawn, const Vector3& prePunch) {
-    uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
+    uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
     float postPX = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
     float postPY = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
     float dX = postPX - prePunch.x;

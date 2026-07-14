@@ -58,7 +58,7 @@ void Misc::Update() {
         uintptr_t listAddr   = Offsets::Get("dwEntityList");
         uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
         if (entityList) {
-            uintptr_t weapSvc    = CS2::Read<uintptr_t>(localPawn + 0x11E0);
+            uintptr_t weapSvc    = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pWeaponServices", 0x1208));
             uint32_t  weapHandle = weapSvc ? CS2::Read<uint32_t>(weapSvc + 0x60) : 0;
             uintptr_t weapon     = weapHandle ? CS2::HandleToPtr(entityList, weapHandle) : 0;
             if (weapon) {
@@ -177,10 +177,10 @@ void Misc::DoScopeRemoval() {
     uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
     if (!localPawn) return;
     // m_bIsScoped at 0x1C50 — zeroing hides scope overlay visually
-    bool scoped = CS2::Read<bool>(localPawn + 0x1C50);
+    bool scoped = CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1C70));
     if (scoped) {
         bool f = false;
-        Memory::Write(localPawn + 0x1C50, &f, 1);
+        Memory::Write(localPawn + Offsets::Get("m_bIsScoped", 0x1C70), &f, 1);
     }
 }
 

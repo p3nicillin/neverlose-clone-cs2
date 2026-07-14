@@ -25,44 +25,45 @@ static bool g_Initialized = false;
 // Source: https://github.com/a2x/cs2-dumper  — update when CS2 patches
 // ---------------------------------------------------------------------------
 static const struct { const char* name; uintptr_t rva; } k_ClientRVAs[] = {
-    { "dwLocalPlayerController",  0x18808C8 },
-    { "dwLocalPlayerPawn",        0x1880930 },
-    { "dwEntityList",             0x18B41D8 },
-    { "dwViewMatrix",             0x1927520 },
-    { "dwViewAngles",             0x1921EB0 }, // CCSGOInput::angViewAngles (cs2-dumper)
-    { "dwForceAttack",            0x172A3C8 },
-    { "dwForceJump",              0x172A420 },
-    { "dwForceDuck",              0x172A418 },
-    { "dwSensitivity",            0x1906C90 },
-    { "dwGameRules",              0x18F44C8 },
+    { "dwLocalPlayerController",  0x237EBA0 },
+    { "dwLocalPlayerPawn",        0x23A4238 },
+    { "dwEntityList",             0x254EE60 },
+    { "dwViewMatrix",             0x23A9340 },
+    { "dwViewAngles",             0x23B9C78 },
+    { "dwForceAttack",            0x1C2D4B0 },
+    { "dwForceJump",              0x1C2D580 },
+    { "dwForceDuck",              0x1C2D5F0 },
+    { "dwSensitivity",            0x23A1228 },
+    { "dwGameRules",              0x23A39D8 },
 };
 
 // Raw struct offsets (NOT added to client.dll base — used as byte offsets into entities)
 static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
-    { "m_iHealth",              0x33C  },
-    { "m_iTeamNum",             0x3CB  },
-    { "m_lifeState",            0x338  },
-    { "m_pGameSceneNode",       0x328  },
-    { "m_vecAbsOrigin",         0x13C  },   // inside CGameSceneNode
-    { "m_angEyeAngles",         0x1528 },   // CCSPlayerPawn
+    { "m_iHealth",              0x34C  },
+    { "m_iTeamNum",             0x3E7  },
+    { "m_lifeState",            0x354  },
+    { "m_pGameSceneNode",       0x330  },
+    { "m_vecAbsOrigin",         0xC8   },
+    { "m_angEyeAngles",         0x1530 },
     { "m_pClippingWeapon",      0x4D8  },
-    { "m_hPlayerPawn",          0x83C  },   // CCSPlayerController -> pawn handle
-    { "m_sSanitizedPlayerName", 0x700  },
-    { "m_iShotsFired",          0x1554 },
+    { "m_pWeaponServices",       0x1208 },
+    { "m_hPlayerPawn",          0x914  },
+    { "m_sSanitizedPlayerName", 0x868  },
+    { "m_iShotsFired",          0x15A4 },
     // Punch angle: two-level access confirmed from cs2-dumper client_dll.json
     // pawn + m_pAimPunchServices → CAimPunchServices ptr → + m_vecCsViewPunchAngle
-    { "m_pAimPunchServices",    0x1490 },  // ptr on CCSPlayerPawn (5264)
+    { "m_pAimPunchServices",    0x14B8 },
     { "m_vecCsViewPunchAngle",  0x48   },  // Vector3 within CAimPunchServices (72)
-    { "m_bIsScoped",            0x1C50 }, // confirmed from cs2-dumper CCSPlayerPawn
-    { "m_flFlashDuration",      0x121C },
+    { "m_bIsScoped",            0x1C70 },
+    { "m_flFlashDuration",      0x1428 },
     { "m_iAccount",             0xDC4  },
     { "m_ArmorValue",           0xEB0  },
     { "m_hActiveWeapon",        0xCE0  },
     { "m_iClip1",                   0x1774 },
     { "m_AttributeManager",         0x370  },
     // Ragebot / anti-aim / third-person fallbacks (update via offsets.json/cs2-dumper)
-    { "m_vecVelocity",              0x3F4  },  // CBaseEntity m_vecVelocity (approx)
-    { "m_fFlags",                   0x3F8  },
+    { "m_vecVelocity",              0x430  },
+    { "m_fFlags",                   0x3F4  },
     { "m_pObserverServices",        0x1518 },  // CCSPlayerPawn -> observer services ptr
     { "m_iObserverMode",            0x40   },  // within CPlayer_ObserverServices
     { "m_flObserverChaseDistance",  0x50   },  // within CPlayer_ObserverServices

@@ -179,7 +179,7 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
 
         // No-recoil: zero punch angle + velocity
         if (cfg->m_noRecoil) {
-            uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + 0x1490);
+            uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
             if (punchSvc) {
                 float z = 0.f;
                 for (uintptr_t off = 0x48; off <= 0x5C; off += 4)
