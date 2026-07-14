@@ -128,6 +128,14 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
 static void ApplyAngle(void* pInput, const Vector3& angle) {
     uintptr_t inp = (uintptr_t)pInput;
     Vector3 compensated = angle;
+    // Keep the client angle backing store synchronized as well. Some CS2
+    // builds serialize from this global rather than CCSGOInput::angViewAngles;
+    // omitting it leaves the player looking straight ahead while fire still
+    // works.
+    uintptr_t globalAngles = Offsets::Get("dwViewAngles");
+    if (globalAngles)
+        Memory::Write(globalAngles, &compensated, sizeof(compensated));
+
     // 1. CCSGOInput::angViewAngles — this IS what CS2 uses for bullet direction
     Memory::Write(inp + 0x0BE0, (void*)&compensated, sizeof(Vector3));
 
