@@ -100,11 +100,12 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
     uintptr_t weap = CS2::HandleToPtr(entityList, wh);
     if (!weap) return false;
     int wid = CS2::GetWeaponDefinitionIndex(weap);
+    int legacyWid = CS2::Read<int>(weap + 0x300);
     static DWORD lastWeaponDiag = 0;
     DWORD now = GetTickCount();
     if (now - lastWeaponDiag > 2000) {
         bool scoped = CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1C70));
-        Logger::Log("Rage weapon: ptr=%p id=%d scoped=%s", (void*)weap, wid,
+        Logger::Log("Rage weapon: ptr=%p id=%d legacy=%d scoped=%s", (void*)weap, wid, legacyWid,
                     scoped ? "yes" : "no");
         lastWeaponDiag = now;
     }
@@ -414,6 +415,12 @@ void Ragebot::Run(CUserCmd*) {
             bestAim = NormAngles(bestAim);
         }
     }
+
+    // Fallback for builds where the CreateMove serializer does not consume
+    // CCSGOInput::angViewAngles. Keep the legacy client angle store aligned so
+    // the shot direction and the command path agree.
+    if (vaAddr)
+        Memory::Write(vaAddr, &bestAim, sizeof(bestAim));
 
     // ---- Auto-scope ----
     if (cfg->m_ragebotQuickScope && IsSniper(list, lp)) {
