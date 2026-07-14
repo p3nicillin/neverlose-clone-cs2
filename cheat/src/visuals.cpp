@@ -118,6 +118,10 @@ struct PlayerInfo {
 void Visuals::Render() {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_visualsEnabled) return;
+
+    // Indicators are independent of ESP. In particular, disabling the ESP
+    // panel must not suppress hitmarkers.
+    if (cfg->m_hitMarker) RenderHitMarkers();
     if (!cfg->m_espEnabled) return;
 
     uintptr_t lcAddr   = Offsets::Get("dwLocalPlayerController");
@@ -329,8 +333,6 @@ void Visuals::Render() {
     }
 
     // ---- Hit markers ----
-    if (cfg->m_hitMarker) RenderHitMarkers();
-
     // ---- Bomb timer ----
     if (cfg->m_bombTimer) RenderBombTimer();
 

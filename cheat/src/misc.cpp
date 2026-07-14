@@ -96,6 +96,9 @@ void Misc::Update() {
     if (cfg->m_scopeRemoval)
         DoScopeRemoval();
 
+    if (cfg->m_skyboxRemoval)
+        DoSkyboxRemoval();
+
     // ---- Shadow removal ----
     if (cfg->m_shadowRemoval)
         DoShadowRemoval();
@@ -151,7 +154,14 @@ void Misc::DoAutoAccept()     {}
 void Misc::DoRankRevealer()   {}
 void Misc::DoDamageReport()   {}
 void Misc::DoHUDRemoval()     {}
-void Misc::DoSkyboxRemoval()  {}
+void Misc::DoSkyboxRemoval() {
+    // r_3dsky controls the 3D skybox pass in CS2. Apply once and let the
+    // engine keep the value; repeatedly writing convars can cause needless
+    // material refreshes.
+    static bool applied = false;
+    if (!applied)
+        applied = ConVar::SetInt("r_3dsky", 0);
+}
 
 void Misc::DoShadowRemoval() {
     // Disable dynamic shadows by overriding r_shadows convar.
