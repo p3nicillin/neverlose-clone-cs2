@@ -6,6 +6,7 @@
 
 #include "utils.h"
 #include <vector>
+#include <mutex>
 #include <imgui.h>
 
 class Visuals {
@@ -86,4 +87,5 @@ private:
     void RenderIndicators();
 
     std::vector<HitMarker> m_hitMarkers;
+    std::mutex m_hitMarkerMutex;
 };

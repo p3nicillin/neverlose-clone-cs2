@@ -272,8 +272,8 @@ void Visuals::Render() {
                 float alpha = std::clamp(cfg->m_glowAlpha, 0.f, 1.f);
                 ImU32 outer = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .22f));
                 ImU32 inner = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .55f));
-                dl->AddRect(ImVec2(x0 - 5.f, y0 - 5.f), ImVec2(x1 + 5.f, y1 + 5.f), outer, 0.f, 0, 5.f);
-                dl->AddRect(ImVec2(x0 - 2.f, y0 - 2.f), ImVec2(x1 + 2.f, y1 + 2.f), inner, 0.f, 0, 2.f);
+                dl->AddRect(ImVec2(x0 - 5.f, y0 - 5.f), ImVec2(x1 + 5.f, y1 + 5.f), outer, 0.f, 5.f);
+                dl->AddRect(ImVec2(x0 - 2.f, y0 - 2.f), ImVec2(x1 + 2.f, y1 + 2.f), inner, 0.f, 2.f);
             }
 
             // ---- 2. MAIN CHAMS LAYER ----
@@ -282,7 +282,7 @@ void Visuals::Render() {
                 ImVec4 fill = chamsCol.Value;
                 fill.w *= .32f;
                 dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), ImGui::ColorConvertFloat4ToU32(fill));
-                dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), colorU32, 0.f, 0, 1.5f);
+                dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), colorU32, 0.f, 1.5f);
             }
         }
 
@@ -433,8 +433,11 @@ void Visuals::Render() {
 
 void Visuals::RenderHitMarkers() {
     static std::vector<HitMarker> s_markers;
-    for (auto& m : m_hitMarkers) s_markers.push_back(m);
-    m_hitMarkers.clear();
+    {
+        std::lock_guard<std::mutex> lock(m_hitMarkerMutex);
+        s_markers.insert(s_markers.end(), m_hitMarkers.begin(), m_hitMarkers.end());
+        m_hitMarkers.clear();
+    }
 
     float cx = ImGui::GetIO().DisplaySize.x * 0.5f;
     float cy = ImGui::GetIO().DisplaySize.y * 0.5f;
@@ -690,6 +693,7 @@ void Visuals::RenderRadar() {
 
 void Visuals::AddHitMarker(bool headshot) {
     HitMarker m; m.time = GetTickCount(); m.headshot = headshot;
+    std::lock_guard<std::mutex> lock(m_hitMarkerMutex);
     m_hitMarkers.push_back(m);
 }
 
