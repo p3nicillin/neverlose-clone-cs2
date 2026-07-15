@@ -265,38 +265,20 @@ void UIManager::RenderMenu() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.63f, 1.0f, 0.8f)); // Cyan glowing border
     
+    // Enable resizing
     ImGui::Begin("Neverlose.cc v1.0", &m_menuOpen, ImGuiWindowFlags_NoCollapse);
 
-    // Dynamic Sizing & Font Scaling
-    ImVec2 windowSize = ImGui::GetWindowSize();
-    float scaleX = windowSize.x / 800.0f;
-    float scaleY = windowSize.y / 520.0f;
-    float scale = (scaleX < scaleY) ? scaleX : scaleY; // Use the minimum scale to preserve ratio
-    if (scale < 0.5f) scale = 0.5f;
-    if (scale > 2.5f) scale = 2.5f;
-
-    // Apply scale to styles dynamically
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 12.0f * scale;
-    style.FrameRounding = 6.0f * scale;
-    style.GrabRounding = 6.0f * scale;
-    style.TabRounding = 6.0f * scale;
-    style.ScrollbarRounding = 8.0f * scale;
-    style.ChildRounding = 8.0f * scale;
-    style.PopupRounding = 8.0f * scale;
-
-    style.WindowPadding = ImVec2(16.f * scale, 16.f * scale);
-    style.FramePadding = ImVec2(12.f * scale, 6.f * scale);
-    style.ItemSpacing = ImVec2(10.f * scale, 12.f * scale);
-    style.ItemInnerSpacing = ImVec2(8.f * scale, 6.f * scale);
-
-    // Scale current font via the recommended FontScaleMain style variable
-    style.FontScaleMain = scale;
+    // Compute dynamic scaling based on current window size relative to default 800x520
+    ImVec2 wSize = ImGui::GetWindowSize();
+    float scale = wSize.x / 800.f;
+    if (scale < 0.7f) scale = 0.7f;
+    if (scale > 2.0f) scale = 2.0f;
+    ImGui::GetStyle().FontScaleMain = scale;
 
     // Track active tab locally
     static int activeTab = 0;
 
-    // Left Column: Sidebar
+    // Left Column: Sidebar (scales with size)
     ImGui::BeginChild("Sidebar", ImVec2(170.f * scale, 0.f), true);
     
     // Branding
@@ -380,6 +362,7 @@ void UIManager::RenderMenu() {
     ImGui::End();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
+    ImGui::GetStyle().FontScaleMain = 1.0f;
 }
 
 // -----------------------------------------------------------------

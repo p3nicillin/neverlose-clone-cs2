@@ -1,7 +1,7 @@
 // =================================================================
 // create_move.cpp  —  CInput::CreateMove hook
 //
-// Hook: client+0xAD54B8, confirmed via HWBP at 64Hz.
+// Hook target: resolved at runtime from the CCSGOInput vtable or signatures.
 // Method: restore-call-repatch (avoids RIP-relative crash).
 //
 // CS2 CCSGOInput layout (Axion-verified):
@@ -9,39 +9,24 @@
 //   pInput + 0x0A74 = nSequenceNumber   (int32)
 //   pInput + 0x0BE0 = angViewAngles     (QAngle, 3 floats) ← DIRECT write
 //   pInput + 0x0A51 = bInThirdPerson    (bool)              ← third-person
-//
-// CUserCmd (0x88 bytes each):
-//   cmd + 0x20 = CCSGOUserCmdPB  m_csgoUserCmd  (inline struct)
-//     csgoCmd + 0x18 = CBaseUserCmdPB*  m_pBaseCmd   → cmd+0x38
-//   cmd + 0x30 = CInButtonState  m_nButtons     (inline struct)
-//     buttons + 0x08 = uint64_t  m_nValue        → cmd+0x38
-//
-// NOTE: m_pBaseCmd (a POINTER at cmd+0x38) and m_nButtons.m_nValue
-//       (a uint64_t at cmd+0x38) BOTH resolve to cmd+0x38 in some
-//       versions of CS2. Writing buttons there doubles as setting the
-//       ptr to a small integer, which the game ignores gracefully.
-//       Per Axion the safest approach is to use both:
-//         (a) write CCSGOInput::angViewAngles (0x0BE0) for the angle,
-//         (b) write cmd+0x38 for the IN_ATTACK flag.
-//
-// IN_ATTACK = (1ULL << 0) = 1   (from Axion CS2 SDK constants)
 // =================================================================
 
 #include "create_move.h"
-#include "cheat_core.h"
-#include "config.h"
-#include "offsets.h"
-#include "memory.h"
-#include "logger.h"
-#include "game_classes.h"
 #include "aimbot.h"
 #include "triggerbot.h"
 #include "no_spread.h"
+#include "game_classes.h"
+#include "offsets.h"
+#include "memory.h"
+#include "cheat_core.h"
+#include "config.h"
+#include "logger.h"
 #include <windows.h>
 #include <cmath>
 #include <process.h>
 #include <mutex>
 #include <shared_mutex>
+#include <algorithm>
 
 bool CreateMoveHook::s_installed = false;
 
@@ -51,13 +36,11 @@ static uint8_t   g_origBytes[14] = {};
 static uint8_t   g_jmpBytes[14]  = {};
 static volatile int  g_cmCalls = 0;
 
-// Shared state: set by CheatThread, consumed by CreateMove. The hook and the
-// worker run concurrently; volatile alone does not make the Vector3 writes
-// safe (and can expose a torn pitch/yaw pair to the game).
 static std::shared_mutex g_stateLock;
 static bool    g_rbHasTarget = false;
 static bool    g_rbWantFire  = false;
 static bool    g_rbAutoStop  = false;
+static bool    g_rbWantScope = false;
 static Vector3 g_rbAimAngle  = {};
 static bool    g_aaActive    = false;
 static Vector3 g_aaFakeAngle = {};
@@ -68,19 +51,21 @@ static bool ValidAngle(const Vector3& a) {
            a.y >= -180.0f && a.y <= 180.0f;
 }
 
-void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire, bool autoStop) {
+void CreateMoveHook::SetRagebotAim(const Vector3& angle, bool fire, bool autoStop, bool scope) {
     if (!ValidAngle(angle)) { ClearRagebotAim(); return; }
     std::unique_lock lock(g_stateLock);
     g_rbAimAngle  = angle;
     g_rbHasTarget = true;
     g_rbWantFire  = fire;
     g_rbAutoStop  = autoStop;
+    g_rbWantScope = scope;
 }
 void CreateMoveHook::ClearRagebotAim() {
     std::unique_lock lock(g_stateLock);
     g_rbHasTarget = false;
     g_rbWantFire  = false;
     g_rbAutoStop  = false;
+    g_rbWantScope = false;
 }
 void CreateMoveHook::SetAntiAim(const Vector3& angle) {
     if (!ValidAngle(angle)) { ClearAntiAim(); return; }
@@ -97,6 +82,7 @@ struct CreateMoveState {
     bool rbHasTarget;
     bool rbWantFire;
     bool rbAutoStop;
+    bool rbWantScope;
     Vector3 rbAimAngle;
     bool aaActive;
     Vector3 aaFakeAngle;
@@ -104,14 +90,13 @@ struct CreateMoveState {
 
 static CreateMoveState SnapshotState() {
     std::shared_lock lock(g_stateLock);
-    return {g_rbHasTarget, g_rbWantFire, g_rbAutoStop, g_rbAimAngle, g_aaActive, g_aaFakeAngle};
+    return {g_rbHasTarget, g_rbWantFire, g_rbAutoStop, g_rbWantScope,
+            g_rbAimAngle, g_aaActive, g_aaFakeAngle};
 }
 
-// ---- Trampoline helpers ----
 using CreateMoveFn = void(__fastcall*)(void*, int, float, bool);
 
 static void WriteAbsJmp(uint8_t* dst, uintptr_t target) {
-    // FF 25 00000000  [8-byte target]  — absolute indirect jmp
     dst[0]=0xFF; dst[1]=0x25; *(uint32_t*)(dst+2)=0;
     *(uint64_t*)(dst+6) = target;
 }
@@ -130,38 +115,32 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
     return ok;
 }
 
-// ---- Apply an angle through CCSGOInput ----
-// Two-pronged: write to angViewAngles (0x0BE0) AND through the CUserCmd chain.
 void CreateMoveHook::ApplyAngle(void* pInput, const Vector3& angle, bool silent) {
     uintptr_t inp = (uintptr_t)pInput;
     Vector3 compensated = angle;
 
     if (!silent) {
-        // Keep the client angle backing store synchronized as well. Some CS2
-        // builds serialize from this global rather than CCSGOInput::angViewAngles;
-        // omitting it leaves the player looking straight ahead while fire still
-        // works (silent/psilent aim).
         uintptr_t globalAngles = Offsets::Get("dwViewAngles");
         if (globalAngles)
             Memory::Write(globalAngles, &compensated, sizeof(compensated));
+
+        Memory::Write(inp + 0x0BE0, (void*)&compensated, sizeof(Vector3));
     }
 
-    // 1. CCSGOInput::angViewAngles — this IS what CS2 uses for bullet direction
-    Memory::Write(inp + 0x0BE0, (void*)&compensated, sizeof(Vector3));
+    uintptr_t seqOff = Offsets::Get("nSequenceNumber", 0x0A74);
+    uintptr_t arrOff = Offsets::Get("arrCommands", 0x0250);
+    uintptr_t stride = Offsets::Get("CUserCmdStride", 0x88);
+    uintptr_t baseCmdOff = Offsets::Get("m_pBaseCmd", 0x48);
+    uintptr_t viewAngOff = Offsets::Get("m_pViewangles", 0x30);
 
-    // 2. Also write through the CUserCmd's protobuf view angle chain.
-    //    nSequenceNumber at 0x0A74, arrCommands at 0x0250, stride 0x88.
-    int32_t  seq = CS2::Read<int32_t>(inp + 0x0A74);
+    int32_t  seq = CS2::Read<int32_t>(inp + seqOff);
     int      idx = ((seq % 150) + 150) % 150;
-    uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
+    uintptr_t pCmd = inp + arrOff + (uintptr_t)idx * stride;
 
-    // CCSGOUserCmdPB starts at cmd+0x20, m_pBaseCmd at +0x28 within → cmd+0x48
-    uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x48);
-    if (pBaseCmd > 0x100000) {
-        // CBaseUserCmdPB::m_pViewangles at +0x30 → CMsgQAngle*
-        uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + 0x30);
-        if (pViewAng > 0x100000) {
-            // CMsgQAngle floats: try at +0x10 (x/pitch), +0x14 (y/yaw), +0x18 (z)
+    uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + baseCmdOff);
+    if (pBaseCmd > 0x100000 && pBaseCmd < 0x7FFFFFF00000) {
+        uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + viewAngOff);
+        if (pViewAng > 0x100000 && pViewAng < 0x7FFFFFF00000) {
             Memory::Write(pViewAng + 0x10, (void*)&compensated.x, 4);
             Memory::Write(pViewAng + 0x14, (void*)&compensated.y, 4);
             float z = 0.f;
@@ -179,18 +158,12 @@ static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
     uintptr_t punchOff = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
     float pitch = CS2::Read<float>(punchSvc + punchOff);
     float yaw   = CS2::Read<float>(punchSvc + punchOff + sizeof(float));
-    static bool logged = false;
-    if (!logged) {
-        Logger::Log("Recoil path: input=%p pawn=%p punchSvc=%p pitch=%.3f yaw=%.3f",
-                    pInput, (void*)localPawn, (void*)punchSvc, pitch, yaw);
-        logged = true;
-    }
     if (!std::isfinite(pitch) || !std::isfinite(yaw) ||
         (fabsf(pitch) < 0.001f && fabsf(yaw) < 0.001f)) return;
 
     Vector3 view = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
-    view.x -= pitch;
-    view.y += yaw;
+    view.x -= pitch * 2.0f;
+    view.y -= yaw * 2.0f;
     while (view.y > 180.f) view.y -= 360.f;
     while (view.y < -180.f) view.y += 360.f;
     if (view.x > 89.f) view.x = 89.f;
@@ -198,40 +171,45 @@ static void ApplyRageRecoilToInput(void* pInput, uintptr_t localPawn) {
     view.z = 0.f;
     Memory::Write((uintptr_t)pInput + 0x0BE0, &view, sizeof(view));
 
-    // Keep the legacy global angle in sync for builds where the command
-    // serializer samples it instead of CCSGOInput::angViewAngles.
     uintptr_t globalAngles = Offsets::Get("dwViewAngles");
     if (globalAngles) {
         Vector3 global = CS2::Read<Vector3>(globalAngles);
-        global.x -= pitch;
-        global.y += yaw;
+        global.x -= pitch * 2.0f;
+        global.y -= yaw * 2.0f;
+        while (global.y > 180.f) global.y -= 360.f;
+        while (global.y < -180.f) global.y += 360.f;
         global.z = 0.f;
         Memory::Write(globalAngles, &global, sizeof(global));
     }
 }
 
-// ---- Set or clear IN_ATTACK in CUserCmd ----
 static void SetAttack(void* pInput, bool attack) {
     uintptr_t inp = (uintptr_t)pInput;
-    int32_t  seq  = CS2::Read<int32_t>(inp + 0x0A74);
+    uintptr_t seqOff = Offsets::Get("nSequenceNumber", 0x0A74);
+    uintptr_t arrOff = Offsets::Get("arrCommands", 0x0250);
+    uintptr_t stride = Offsets::Get("CUserCmdStride", 0x88);
+
+    int32_t  seq  = CS2::Read<int32_t>(inp + seqOff);
     int      idx  = ((seq % 150) + 150) % 150;
-    uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
-    // CUserCmd::m_nButtons at +0x30, CInButtonState::m_nValue at +0x08 → cmd+0x38
+    uintptr_t pCmd = inp + arrOff + (uintptr_t)idx * stride;
+
     uint64_t cur = CS2::Read<uint64_t>(pCmd + 0x38);
-    if (attack) cur |=  1ULL; // IN_ATTACK bit
+    if (attack) cur |=  1ULL;
     else        cur &= ~1ULL;
     Memory::Write(pCmd + 0x38, &cur, 8);
 }
 
-// Scope is a command button just like primary fire.  Keeping this in the
-// CreateMove path avoids SendInput racing the game's focus/input handling.
 static void SetSecondaryAttack(void* pInput, bool attack) {
     uintptr_t inp = (uintptr_t)pInput;
-    int32_t seq = CS2::Read<int32_t>(inp + 0x0A74);
+    uintptr_t seqOff = Offsets::Get("nSequenceNumber", 0x0A74);
+    uintptr_t arrOff = Offsets::Get("arrCommands", 0x0250);
+    uintptr_t stride = Offsets::Get("CUserCmdStride", 0x88);
+
+    int32_t seq = CS2::Read<int32_t>(inp + seqOff);
     int idx = ((seq % 150) + 150) % 150;
-    uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
+    uintptr_t pCmd = inp + arrOff + (uintptr_t)idx * stride;
     uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
-    if (attack) buttons |= (1ULL << 11); // IN_ATTACK2
+    if (attack) buttons |= (1ULL << 11);
     else        buttons &= ~(1ULL << 11);
     Memory::Write(pCmd + 0x38, &buttons, sizeof(buttons));
 }
@@ -245,34 +223,77 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
     Config*   cfg    = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     bool      ready  = g_cmCalls >= 64 && active && lp && cfg;
 
-    // -- PRE-ORIGINAL: set angle and fire flag in CCSGOInput --
-    if (ready) {
-        const CreateMoveState state = SnapshotState();
-        if (cfg->m_ragebotNoRecoil)
-            ApplyRageRecoilToInput(pThis, lp);
-        if (state.rbHasTarget) {
-            CreateMoveHook::ApplyAngle(pThis, state.rbAimAngle, cfg->m_ragebotSilentAimbot);
-            if (state.rbWantFire)
-                SetAttack(pThis, true);
-        } else if (state.aaActive && cfg->m_antiaimEnabled) {
-            CreateMoveHook::ApplyAngle(pThis, state.aaFakeAngle, true);
+    // ---- Auto-Discovery Scanner ----
+    static bool offsetsFound = false;
+    if (!offsetsFound && lp && (g_cmCalls % 64 == 0)) {
+        Logger::Log("[SCANNER] Starting runtime offset auto-discovery...");
+        int seqOffsets[] = { 0x0A74, 0x0A78, 0x0A80, 0x0AC4, 0x0ACC, 0x0AD0 };
+        int arrOffsets[] = { 0x0250, 0x02D0, 0x0300, 0x0350 };
+        int strides[] = { 0x88, 0x90, 0x98, 0xA0, 0xB0 };
+        int baseCmdOffsets[] = { 0x38, 0x40, 0x48, 0x50 };
+        int viewAngOffsets[] = { 0x30, 0x38, 0x40, 0x48 };
+        bool success = false;
+        for (int seqOff : seqOffsets) {
+            int32_t seq = CS2::Read<int32_t>((uintptr_t)pThis + seqOff);
+            if (seq < 1000 || seq > 10000000) continue;
+            for (int arrOff : arrOffsets) {
+                for (int stride : strides) {
+                    for (int baseCmdOff : baseCmdOffsets) {
+                        int idx = ((seq % 150) + 150) % 150;
+                        uintptr_t pCmd = (uintptr_t)pThis + arrOff + (uintptr_t)idx * stride;
+                        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + baseCmdOff);
+                        if (pBaseCmd <= 0x100000 || pBaseCmd > 0x7FFFFFF00000) continue;
+                        for (int viewAngOff : viewAngOffsets) {
+                            uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + viewAngOff);
+                            if (pViewAng <= 0x100000 || pViewAng > 0x7FFFFFF00000) continue;
+                            float pitch = CS2::Read<float>(pViewAng + 0x10);
+                            float yaw = CS2::Read<float>(pViewAng + 0x14);
+                            if (pitch >= -90.f && pitch <= 90.f && yaw >= -180.f && yaw <= 180.f) {
+                                Logger::Log("[DISCOVERY SUCCESS] seq=0x%X arr=0x%X stride=0x%X baseCmd=0x%X viewAng=0x%X",
+                                            seqOff, arrOff, stride, baseCmdOff, viewAngOff);
+                                Offsets::Set("nSequenceNumber", seqOff);
+                                Offsets::Set("arrCommands", arrOff);
+                                Offsets::Set("CUserCmdStride", stride);
+                                Offsets::Set("m_pBaseCmd", baseCmdOff);
+                                Offsets::Set("m_pViewangles", viewAngOff);
+                                success = true;
+                                break;
+                            }
+                        }
+                        if (success) break;
+                    }
+                    if (success) break;
+                }
+                if (success) break;
+            }
+            if (success) break;
+        }
+        if (!success) {
+            Logger::Log("[SCANNER] Auto-discovery failed this tick, will retry.");
+        } else {
+            offsetsFound = true;
         }
     }
 
-    // -- CALL ORIGINAL --
+    // NOTE: All angle/recoil/nospread application happens POST-original below.
+    // Applying pre-original caused double-application and broken aim.
+
     if (!SafeCallOriginal(pThis, nSlot, t, active)) {
         CreateMoveHook::Uninstall();
         return;
     }
 
-    // -- POST-ORIGINAL: zero punch, handle bhop, auto-strafe, auto-pistol, clear per-tick fire flag --
     if (ready) {
-        int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
+        uintptr_t seqOff = Offsets::Get("nSequenceNumber", 0x0A74);
+        uintptr_t arrOff = Offsets::Get("arrCommands", 0x0250);
+        uintptr_t stride = Offsets::Get("CUserCmdStride", 0x88);
+        uintptr_t baseCmdOff = Offsets::Get("m_pBaseCmd", 0x48);
+
+        int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + seqOff);
         int      idx  = ((seq % 150) + 150) % 150;
-        uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
-        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x48); // corrected offset
-        // The original call may rebuild or sanitize the command and overwrite
-        // the pre-call angle. Apply the final aim after it returns.
+        uintptr_t pCmd = (uintptr_t)pThis + arrOff + (uintptr_t)idx * stride;
+        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + baseCmdOff);
+
         const CreateMoveState state = SnapshotState();
         Vector3 finalAngles{};
         bool aimSilent = false;
@@ -287,7 +308,6 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             mustApplyAngles = true;
         }
 
-        // 1. Recoil Control System (RCS)
         if (mustApplyAngles && (cfg->m_noRecoil || cfg->m_ragebotNoRecoil)) {
             uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
             if (punchSvc) {
@@ -299,33 +319,27 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             }
         }
 
-        // 2. Spread Compensation
         if (mustApplyAngles && (cfg->m_noSpread || cfg->m_ragebotNoSpread) && NoSpread::IsReady()) {
             finalAngles = NoSpread::CompensateSpread(finalAngles, lp, seq);
         }
 
-        // Only rage/anti-aim own the command angles.  Re-writing angles on
-        // every tick was overwriting legitbot's visible, smoothed movement.
         if (mustApplyAngles) {
-        // Normalize compensated angles
-        while (finalAngles.x > 89.f) finalAngles.x -= 180.f;
-        while (finalAngles.x < -89.f) finalAngles.x += 180.f;
-        while (finalAngles.y > 180.f) finalAngles.y -= 360.f;
-        while (finalAngles.y < -180.f) finalAngles.y += 360.f;
-        finalAngles.z = 0.f;
-
-        // Apply angles to input and cmd protobuf
-        CreateMoveHook::ApplyAngle(pThis, finalAngles, aimSilent);
+            while (finalAngles.x > 89.f) finalAngles.x -= 180.f;
+            while (finalAngles.x < -89.f) finalAngles.x += 180.f;
+            while (finalAngles.y > 180.f) finalAngles.y -= 360.f;
+            while (finalAngles.y < -180.f) finalAngles.y += 360.f;
+            finalAngles.z = 0.f;
+            CreateMoveHook::ApplyAngle(pThis, finalAngles, aimSilent);
         }
 
         if (state.rbHasTarget) {
+            SetSecondaryAttack(pThis, state.rbWantScope);
             if (state.rbWantFire)
                 SetAttack(pThis, true);
-            if (state.rbAutoStop && pBaseCmd > 0x100000) {
+            if (state.rbAutoStop && pBaseCmd > 0x100000 && pBaseCmd < 0x7FFFFFF00000) {
                 Vector3 vel = CS2::Read<Vector3>(lp + Offsets::Get("m_vecVelocity", 0x430));
                 float speed = sqrtf(vel.x * vel.x + vel.y * vel.y);
                 if (speed > 10.f) {
-                    // Quick Stop: slide stop by applying exact opposite force to cancel velocity instantly!
                     float vel_yaw = atan2f(vel.y, vel.x);
                     float cmd_yaw_rad = finalAngles.y * 3.14159265f / 180.f;
                     float diff_yaw = vel_yaw - cmd_yaw_rad;
@@ -340,54 +354,52 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
                 }
             }
         } else if (!state.aaActive) {
+            // Standalone no-recoil (when not in rage/antiaim mode)
+            if (cfg->m_noRecoil || cfg->m_ragebotNoRecoil) {
+                ApplyRageRecoilToInput(pThis, lp);
+            }
             Aimbot::Update(pThis);
             Triggerbot::Update(pThis);
         }
 
-        // Bhop — inject IN_JUMP through the command button field. The old
-        // dwForceJump global was removed from modern CS2, so drive the jump
-        // via the CUserCmd buttons instead: jump only while grounded and
-        // release in the air so each landing re-triggers automatically.
         if (cfg->m_bunnyhop && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
             uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F4));
             uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
-            if (flags & 1) buttons |=  (1ULL << 1); // IN_JUMP on ground
-            else           buttons &= ~(1ULL << 1); // release while airborne
+            if (flags & 1) buttons |=  (1ULL << 1);
+            else           buttons &= ~(1ULL << 1);
             Memory::Write(pCmd + 0x38, &buttons, 8);
         }
 
-        // Auto-strafe
         if (cfg->m_autoStrafe) {
             uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F4));
-            if (!(flags & 1)) { // in air
+            if (!(flags & 1)) {
                 POINT cur; GetCursorPos(&cur);
                 static POINT last = cur;
                 int dx = cur.x - last.x;
                 last = cur;
-                if (pBaseCmd > 0x100000) {
+                if (pBaseCmd > 0x100000 && pBaseCmd < 0x7FFFFFF00000) {
                     float strafeSide = 0.f;
                     if (dx < 0) strafeSide = -450.f;
                     else if (dx > 0) strafeSide = 450.f;
                     if (strafeSide != 0.f) {
-                        Memory::Write(pBaseCmd + 0x24, &strafeSide, 4); // flSideMove
+                        Memory::Write(pBaseCmd + 0x24, &strafeSide, 4);
                     }
                 }
             }
         }
 
-        // Auto-pistol
         if (cfg->m_autoPistol) {
             uintptr_t listAddr = Offsets::Get("dwEntityList");
             uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
             if (entityList) {
                 uintptr_t wep = CS2::GetActiveWeapon(entityList, lp);
                 if (wep) {
-                    int wid = CS2::Read<int>(wep + 0x300);
+                    int wid = CS2::GetWeaponDefinitionIndex(wep);
                     bool isPistol = (wid >= 1 && wid <= 9) || wid == 30;
                     if (isPistol) {
                         static bool toggle = false;
                         uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
-                        if (buttons & 1ULL) { // IN_ATTACK
+                        if (buttons & 1ULL) {
                             if (toggle) {
                                 buttons &= ~1ULL;
                             }
@@ -401,7 +413,6 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             }
         }
 
-        // Third-person via CCSGOInput + 0x0A51 (Axion-confirmed)
         if (cfg->m_thirdPerson) {
             bool tp = true;
             Memory::Write((uintptr_t)pThis + 0x0A51, &tp, 1);
@@ -423,8 +434,56 @@ bool CreateMoveHook::Install() {
     uintptr_t base = Memory::GetClientBase();
     if (!base) return false;
     g_clientBase = base;
-    Logger::Log("CreateMove: hooking client+0xAD54B8");
-    return InstallAt(base + 0xAD54B8);
+
+    // ---- Strategy 1: vtable-based via dwCSGOInput ----
+    // CCSGOInput vtable has CreateMove at a known slot (typically 3-7).
+    // We read the vtable, validate each slot, and try to hook the first
+    // one that looks like a function inside client.dll.
+    uintptr_t inputAddr = Offsets::Get("dwCSGOInput");
+    if (inputAddr) {
+        uintptr_t pInput = CS2::Read<uintptr_t>(inputAddr);
+        if (pInput) {
+            uintptr_t vtable = CS2::Read<uintptr_t>(pInput);
+            if (vtable > base) {
+                // CreateMove is typically at vtable index 5 in current CS2 builds
+                for (int idx : {5, 4, 6, 3, 7, 8}) {
+                    uintptr_t fn = CS2::Read<uintptr_t>(vtable + idx * 8);
+                    if (fn > base && fn < base + 0x10000000) {
+                        // Validate: check first byte looks like a function prologue
+                        uint8_t b0 = CS2::Read<uint8_t>(fn);
+                        uint8_t b1 = CS2::Read<uint8_t>(fn + 1);
+                        bool looksLikeFn = (b0 == 0x48 || b0 == 0x40 || b0 == 0x55 ||
+                                            b0 == 0x56 || b0 == 0x53 || b0 == 0x41);
+                        if (looksLikeFn) {
+                            Logger::Log("CreateMove: found via vtable[%d] at client+0x%llX",
+                                        idx, (unsigned long long)(fn - base));
+                            if (InstallAt(fn)) return true;
+                        }
+                    }
+                }
+                Logger::Log("CreateMove: vtable scan found no valid CreateMove slot");
+            }
+        }
+    }
+
+    // ---- Strategy 2: pattern scan ----
+    // Try multiple known patterns for CCSGOInput::CreateMove
+    const struct { const char* sig; const char* name; } patterns[] = {
+        { "48 8B C4 44 88 48 20 44 89 40 18", "CS2 2025 pattern A" },
+        { "48 89 5C 24 ? 56 57 48 83 EC ? 44 8B", "CS2 2025 pattern B" },
+        { "48 89 5C 24 ? 48 89 74 24 ? 55 57 41 56 48 8D 6C 24", "CS2 generic pattern" },
+    };
+    for (auto& p : patterns) {
+        uintptr_t addr = Memory::FindPattern(base, p.sig);
+        if (addr) {
+            Logger::Log("CreateMove: found via %s at client+0x%llX",
+                        p.name, (unsigned long long)(addr - base));
+            if (InstallAt(addr)) return true;
+        }
+    }
+
+    Logger::LogError("CreateMove: no validated vtable entry or byte pattern found");
+    return false;
 }
 
 bool CreateMoveHook::InstallAt(uintptr_t addr) {

@@ -73,17 +73,18 @@ void Misc::Update() {
     // ---- No recoil + No spread ----
     // Punch zeroing is handled in CreateMove (post-original, with velocity zeroed).
     // Only do weapon field zeroing here as a backup at 1000Hz.
-    if ((cfg->m_ragebotNoRecoil || cfg->m_ragebotNoSpread) && !CreateMoveHook::IsActive()) {
+    if ((cfg->m_ragebotNoRecoil || cfg->m_ragebotNoSpread || cfg->m_noRecoil) && !CreateMoveHook::IsActive()) {
         // Fallback: if CreateMove hook not active, zero punch here
-        uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + 0x1490);
+        uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
         if (punchSvc) {
+            uintptr_t punchOff = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
             float z = 0.f;
-            Memory::Write(punchSvc + 0x48, &z, 4);
-            Memory::Write(punchSvc + 0x4C, &z, 4);
-            Memory::Write(punchSvc + 0x50, &z, 4);
-            Memory::Write(punchSvc + 0x54, &z, 4); // velocity
-            Memory::Write(punchSvc + 0x58, &z, 4);
-            Memory::Write(punchSvc + 0x5C, &z, 4);
+            Memory::Write(punchSvc + punchOff,      &z, 4); // pitch
+            Memory::Write(punchSvc + punchOff + 4,  &z, 4); // yaw
+            Memory::Write(punchSvc + punchOff + 8,  &z, 4); // roll
+            Memory::Write(punchSvc + punchOff + 12, &z, 4); // velocity pitch
+            Memory::Write(punchSvc + punchOff + 16, &z, 4); // velocity yaw
+            Memory::Write(punchSvc + punchOff + 20, &z, 4); // velocity roll
         }
 
         uintptr_t listAddr   = Offsets::Get("dwEntityList");
@@ -343,12 +344,24 @@ void Misc::DoAutoAccept() {
                 int cx = rect.left + (rect.right - rect.left) / 2;
                 int cy = rect.top + (int)((rect.bottom - rect.top) * 0.42f);
 
-                // Send silent background mouse clicks
-                PostMessageA(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(cx, cy));
-                Sleep(20);
-                PostMessageA(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(cx, cy));
-                
-                lastClick = now;
+                // Use GetDC + GetPixel to check if the button is actually green
+                HDC hdc = GetDC(hwnd);
+                if (hdc) {
+                    COLORREF color = GetPixel(hdc, cx, cy);
+                    ReleaseDC(hwnd, hdc);
+
+                    int r = GetRValue(color);
+                    int g = GetGValue(color);
+                    int b = GetBValue(color);
+
+                    // The accept button green has high green value and low red/blue values
+                    if (g > 115 && r < 110 && b < 110) {
+                        PostMessageA(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(cx, cy));
+                        Sleep(20);
+                        PostMessageA(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(cx, cy));
+                        lastClick = now;
+                    }
+                }
             }
         }
     }

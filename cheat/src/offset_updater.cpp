@@ -110,7 +110,9 @@ static void ExtractAllInts(const std::string& json,
             while (p3 < json.size() && (json[p3] == ' ' || json[p3] == '\t' || json[p3] == '\r' || json[p3] == '\n')) ++p3;
             if (p3 < json.size() && json[p3] == '{') {
                 // Class declaration start
-                currentClass = key;
+                if (key != "fields" && key != "metadata") {
+                    currentClass = key;
+                }
                 pos = p3 + 1;
                 continue;
             }

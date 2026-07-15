@@ -21,6 +21,7 @@
 #include "create_move.h"
 #include "no_spread.h"
 #include "triggerbot.h"
+#include "chams.h"
 #include <process.h>
 
 CheatCore* g_Cheat = nullptr;
@@ -192,6 +193,7 @@ void CheatCore::Shutdown() {
     // or CreateMove pointed at an object graph that is being destroyed.
     CreateMoveHook::Uninstall();
     DX11Hook::Uninstall();
+    Chams::Shutdown();
 
     // Shutdown subsystems
     if (m_hooks) {

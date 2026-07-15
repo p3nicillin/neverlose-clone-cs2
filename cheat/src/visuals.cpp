@@ -35,19 +35,20 @@ Visuals* g_Visuals = nullptr;
 // ---- CS2 bone connections (parent → child pairs) ----
 static const std::pair<int,int> kBoneLinks[] = {
     // Spine
-    {6,5},{5,4},{4,2},{2,0},
+    {7,6},{6,4},{4,3},{3,2},{2,1},
     // Left arm
-    {5,8},{8,9},{9,10},
+    {6,8},{8,9},{9,10},{10,11},
     // Right arm
-    {5,13},{13,14},{14,15},
+    {6,12},{12,13},{13,14},{14,15},
     // Left leg
-    {0,22},{22,23},{23,24},
+    {1,22},{22,23},{23,24},
     // Right leg
-    {0,25},{25,26},{26,27},
+    {1,25},{25,26},{26,27},
 };
 static const int kNumBoneLinks = (int)(sizeof(kBoneLinks)/sizeof(kBoneLinks[0]));
 // Highest bone index we use: CS2 bones go up to index 27 (feet)
-static const int kMaxBone = 28;
+static const int kMaxBone = 27;
+
 
 Visuals::Visuals()
     : m_enabled(false), m_espEnabled(false), m_espBox(false)
@@ -190,11 +191,11 @@ void Visuals::Render() {
             pi.bonesValid = true;
             for (int b = 0; b <= kMaxBone; ++b)
                 pi.bones[b] = CS2::GetBonePos(boneArr, b);
-            // Bone 6 = head in standard CS2 model
-            if (std::isfinite(pi.bones[6].x) && std::isfinite(pi.bones[6].y) &&
-                std::isfinite(pi.bones[6].z) &&
-                (pi.bones[6].x != 0.f || pi.bones[6].y != 0.f || pi.bones[6].z != 0.f))
-                headPos = pi.bones[6];
+            // Bone 7 = head in standard CS2 model
+            if (std::isfinite(pi.bones[7].x) && std::isfinite(pi.bones[7].y) &&
+                std::isfinite(pi.bones[7].z) &&
+                (pi.bones[7].x != 0.f || pi.bones[7].y != 0.f || pi.bones[7].z != 0.f))
+                headPos = pi.bones[7];
         }
         pi.head = headPos;
 
@@ -252,37 +253,143 @@ void Visuals::Render() {
                 isVisible = CS2::Read<bool>(pi.pawn + 0x1340) || (Dist3D(localOrigin, pi.origin) < 1500.f);
             }
 
-            bool drawChams = false;
+            // Player chams are rendered by the DX11 DrawIndexed hook. Keep the
+            // overlay path disabled so models are not painted a second time.
+            const bool drawChams = false;
             ImColor chamsCol;
-            if (isVisible) {
-                if (cfg->m_chamsEnabled && cfg->m_chamsVisible) {
-                    drawChams = true;
-                    chamsCol = cfg->m_chamsVisibleColor;
-                }
-            } else {
-                if (cfg->m_chamsEnabled && cfg->m_chamsHidden) {
-                    drawChams = true;
-                    chamsCol = cfg->m_chamsHiddenColor;
-                }
-            }
+
+            float dist = Dist3D(localOrigin, pi.origin);
+            if (dist < 100.f) dist = 100.f;
+            float scale = 700.f / dist; // standard distance scale
 
             // ---- 1. GLOW LAYER ----
             if (cfg->m_glowEnabled) {
                 ImVec4 gv = cfg->m_glowColor.Value;
                 float alpha = std::clamp(cfg->m_glowAlpha, 0.f, 1.f);
-                ImU32 outer = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .22f));
-                ImU32 inner = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .55f));
-                dl->AddRect(ImVec2(x0 - 5.f, y0 - 5.f), ImVec2(x1 + 5.f, y1 + 5.f), outer, 0.f, 5.f);
-                dl->AddRect(ImVec2(x0 - 2.f, y0 - 2.f), ImVec2(x1 + 2.f, y1 + 2.f), inner, 0.f, 2.f);
+                ImU32 outerCol = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .18f));
+                ImU32 innerCol = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .40f));
+
+                if (pi.bonesValid) {
+                    // Head glow
+                    Vector2 scrHeadBone;
+                    if (Utils::WorldToScreen(pi.head, scrHeadBone, vm, screenW, screenH)) {
+                        float rHead = std::clamp(6.f * scale, 2.f, 25.f);
+                        dl->AddCircleFilled(ImVec2(scrHeadBone.x, scrHeadBone.y), rHead + 2.5f, outerCol);
+                        dl->AddCircleFilled(ImVec2(scrHeadBone.x, scrHeadBone.y), rHead + 1.0f, innerCol);
+                    }
+                    // Bone links glow
+                    for (int b = 0; b < kNumBoneLinks; ++b) {
+                        int pa = kBoneLinks[b].first;
+                        int ch = kBoneLinks[b].second;
+                        Vector3& wp = pi.bones[pa];
+                        Vector3& wc = pi.bones[ch];
+                        if ((wp.x == 0.f && wp.y == 0.f) || (wc.x == 0.f && wc.y == 0.f)) continue;
+                        Vector2 sp, sc;
+                        if (!Utils::WorldToScreen(wp, sp, vm, screenW, screenH)) continue;
+                        if (!Utils::WorldToScreen(wc, sc, vm, screenW, screenH)) continue;
+
+                        float baseT = (pa <= 7 && ch <= 7) ? 2.5f : 1.2f;
+                        float thick = std::clamp(baseT * scale, 1.0f, 6.0f);
+                        dl->AddLine(ImVec2(sp.x, sp.y), ImVec2(sc.x, sc.y), outerCol, thick + 3.0f);
+                        dl->AddLine(ImVec2(sp.x, sp.y), ImVec2(sc.x, sc.y), innerCol, thick + 1.0f);
+                    }
+                } else {
+                    // Fallback to bounding box glow
+                    dl->AddRect(ImVec2(x0 - 5.f, y0 - 5.f), ImVec2(x1 + 5.f, y1 + 5.f), outerCol, 0.f, 5.f);
+                    dl->AddRect(ImVec2(x0 - 2.f, y0 - 2.f), ImVec2(x1 + 2.f, y1 + 2.f), innerCol, 0.f, 2.f);
+                }
             }
 
-            // ---- 2. MAIN CHAMS LAYER ----
+            // ---- 2. MAIN CHAMS LAYER (skeleton-based filled) ----
             if (drawChams) {
-                ImU32 colorU32 = ToImU32(chamsCol);
-                ImVec4 fill = chamsCol.Value;
-                fill.w *= .32f;
-                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), ImGui::ColorConvertFloat4ToU32(fill));
-                dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), colorU32, 0.f, 1.5f);
+                ImU32 chamsColU32 = ToImU32(chamsCol);
+
+                if (pi.bonesValid) {
+                    // ---- Filled capsule helper ----
+                    // Draws a filled capsule (rounded rectangle) along a bone
+                    // segment by building a convex polygon from the perpendicular
+                    // offset at each endpoint plus semicircle caps.
+                    auto drawFilledCapsule = [&](ImVec2 a, ImVec2 b, float radius, ImU32 col) {
+                        float dx = b.x - a.x;
+                        float dy = b.y - a.y;
+                        float len = sqrtf(dx * dx + dy * dy);
+                        if (len < 0.1f) { dl->AddCircleFilled(a, radius, col); return; }
+
+                        // Perpendicular unit vector
+                        float nx = -dy / len;
+                        float ny =  dx / len;
+                        float px = nx * radius;
+                        float py = ny * radius;
+
+                        // Build convex hull: rectangle body + semicircle caps
+                        const int capSegs = 6;
+                        ImVec2 pts[4 + capSegs * 2];
+                        int idx = 0;
+
+                        // Side A (from a to b on one side)
+                        pts[idx++] = ImVec2(a.x + px, a.y + py);
+                        pts[idx++] = ImVec2(b.x + px, b.y + py);
+
+                        // Cap at B
+                        float angleStart = atan2f(py, px);
+                        for (int s = 0; s <= capSegs; ++s) {
+                            float angle = angleStart - IM_PI * s / (float)capSegs;
+                            pts[idx++] = ImVec2(b.x + cosf(angle) * radius,
+                                                b.y + sinf(angle) * radius);
+                        }
+
+                        // Side B (from b to a on other side)
+                        pts[idx++] = ImVec2(a.x - px, a.y - py);
+
+                        // Cap at A
+                        for (int s = 1; s < capSegs; ++s) {
+                            float angle = angleStart - IM_PI - IM_PI * s / (float)capSegs;
+                            pts[idx++] = ImVec2(a.x + cosf(angle) * radius,
+                                                a.y + sinf(angle) * radius);
+                        }
+
+                        dl->AddConvexPolyFilled(pts, idx, col);
+                    };
+
+                    // ---- Draw filled bone capsules ----
+                    for (int b = 0; b < kNumBoneLinks; ++b) {
+                        int pa = kBoneLinks[b].first;
+                        int ch = kBoneLinks[b].second;
+                        if (pa > kMaxBone || ch > kMaxBone) continue;
+                        Vector3& wp = pi.bones[pa];
+                        Vector3& wc = pi.bones[ch];
+                        if ((wp.x == 0.f && wp.y == 0.f) || (wc.x == 0.f && wc.y == 0.f)) continue;
+                        Vector2 sp, sc;
+                        if (!Utils::WorldToScreen(wp, sp, vm, screenW, screenH)) continue;
+                        if (!Utils::WorldToScreen(wc, sc, vm, screenW, screenH)) continue;
+
+                        // Vary capsule thickness by body part:
+                        //   Torso/spine bones are thicker, limbs thinner
+                        float baseThick;
+                        bool isTorso = (pa <= 7 && ch <= 7);
+                        bool isLeg   = (pa >= 22 || ch >= 22);
+                        if (isTorso)     baseThick = 8.0f;
+                        else if (isLeg)  baseThick = 5.5f;
+                        else             baseThick = 4.5f; // arms
+
+                        float thick = std::clamp(baseThick * scale, 2.0f, 22.0f);
+                        drawFilledCapsule(ImVec2(sp.x, sp.y), ImVec2(sc.x, sc.y), thick, chamsColU32);
+                    }
+
+                    // ---- Head circle ----
+                    Vector2 scrHeadBone;
+                    if (Utils::WorldToScreen(pi.head, scrHeadBone, vm, screenW, screenH)) {
+                        float rHead = std::clamp(9.0f * scale, 3.0f, 28.0f);
+                        dl->AddCircleFilled(ImVec2(scrHeadBone.x, scrHeadBone.y), rHead, chamsColU32);
+                    }
+                } else {
+                    // Fallback: filled bounding box when bones unavailable
+                    ImVec4 fill = chamsCol.Value;
+                    fill.w *= .50f;
+                    ImU32 chamsFillU32 = ImGui::ColorConvertFloat4ToU32(fill);
+                    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), chamsFillU32);
+                    dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), chamsColU32, 0.f, 1.5f, ImDrawFlags_None);
+                }
             }
         }
 

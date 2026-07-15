@@ -18,6 +18,7 @@
 #include "dx11_hook.h"
 #include "cheat_core.h"
 #include "ui_manager.h"
+#include "chams.h"
 #include "logger.h"
 #include <d3d11.h>
 #include <dxgi.h>
@@ -110,10 +111,23 @@ static HRESULT STDMETHODCALLTYPE HookedPresent(IDXGISwapChain* sc, UINT sync, UI
                 ImGui_ImplDX11_CreateDeviceObjects();
                 g_DeviceObjectsReady = true;
                 Logger::Log("DX11: shaders ready — rendering active");
+
+                // Initialize chams (needs device + context)
+                if (g_pDev && g_pCtx) {
+                    if (Chams::Initialize(g_pDev, g_pCtx)) {
+                        Chams::InstallHooks(g_pCtx);
+                        Logger::Log("DX11: internal chams initialized");
+                    } else {
+                        Logger::LogError("DX11: chams initialization failed");
+                    }
+                }
                 return 0;
             }, nullptr, 0, nullptr);
         }
     }
+
+    // Per-frame chams bookkeeping (stride finder reset)
+    Chams::FrameReset();
 
     if (rendererInit && g_Cheat && g_Cheat->GetUI())
         RenderUI();

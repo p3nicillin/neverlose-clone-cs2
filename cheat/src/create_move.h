@@ -42,7 +42,8 @@ public:
 
     // Called from CheatThread — ragebot/antiaim store their desired angles here.
     // The CreateMove hook applies them silently (restores real angles after original).
-    static void SetRagebotAim(const Vector3& angle, bool fire = false, bool autoStop = false);  // aim/fire/movement intent
+    static void SetRagebotAim(const Vector3& angle, bool fire = false, bool autoStop = false,
+                              bool scope = false);  // aim/fire/movement intent
     static void ClearRagebotAim();
     static void SetAntiAim(const Vector3& angle);     // fake angle for server
     static void ClearAntiAim();

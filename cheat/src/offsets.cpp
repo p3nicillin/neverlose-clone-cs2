@@ -217,6 +217,10 @@ uintptr_t Offsets::Get(const std::string& name, uintptr_t fallback) {
     return v ? v : fallback;
 }
 
+void Offsets::Set(const std::string& name, uintptr_t val) {
+    g_Offsets[name] = val;
+}
+
 bool Offsets::HasOffset(const std::string& name) {
     return g_Offsets.count(name) > 0;
 }

@@ -107,7 +107,7 @@ void Aimbot::Update(void* pInput) {
             float scale = cfg->m_legitbotRcs * 0.01f;
             uintptr_t po = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
             targetAng.x -= CS2::Read<float>(punchSvc + po) * scale;
-            targetAng.y += CS2::Read<float>(punchSvc + po + 4) * scale;
+            targetAng.y -= CS2::Read<float>(punchSvc + po + 4) * scale;
         }
     }
     float smooth = (cfg->m_aimbotSmooth < 1.f) ? 1.f : cfg->m_aimbotSmooth;

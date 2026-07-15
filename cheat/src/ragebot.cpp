@@ -30,16 +30,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 static const float RAD = (float)(M_PI / 180.0);
-static bool g_rageMouseDown = false;
 static uintptr_t g_lastRageWeapon = 0;
 
 static void ReleaseRageMouse() {
-    if (!g_rageMouseDown) return;
-    INPUT up{};
-    up.type = INPUT_MOUSE;
-    up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-    SendInput(1, &up, sizeof(up));
-    g_rageMouseDown = false;
+    // Ragebot button state is owned by CreateMove; never synthesize OS input.
+    CreateMoveHook::ClearRagebotAim();
 }
 
 static Vector3 CalcAngle(const Vector3& src, const Vector3& dst) {
@@ -206,12 +201,12 @@ void Ragebot::UpdateRecords(uintptr_t entityList, uintptr_t localCtrl) {
         EntityState& state = StateFor(i);
         int headIdx = state.head;
 
-        // Fetch head bone (bone 6)
+        // Fetch head bone (bone 7)
         Vector3 headPos = CS2::GetAbsOrigin(pawn);
         headPos.z += 72.f; // Fallback
         uintptr_t bones = CS2::GetBoneArray(pawn);
         if (bones) {
-            Vector3 hb = CS2::GetBonePos(bones, 6);
+            Vector3 hb = CS2::GetBonePos(bones, 7);
             if (Dist3D(hb, CS2::GetAbsOrigin(pawn)) < 300.f) {
                 headPos = hb;
             }
@@ -311,9 +306,9 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         // Scan multiple bones for HvH optimization
         std::vector<int> bonesToScan;
         if (cfg->m_ragebotMultipoint) {
-            bonesToScan = { 6, 5, 4, 2, 0 }; // Head, Neck, Chest, Spine, Pelvis
+            bonesToScan = { 7, 6, 4, 2, 1 }; // Head, Neck, Chest, Spine, Pelvis
         } else {
-            bonesToScan = { 6, 0 }; // Head, Pelvis
+            bonesToScan = { 7, 1 }; // Head, Pelvis
         }
 
         uintptr_t boneArray = CS2::GetBoneArray(pawn);
@@ -323,9 +318,9 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
 
         for (int boneId : bonesToScan) {
             Vector3 bonePos = pos;
-            if (boneId == 6) bonePos.z += 72.f;
-            else if (boneId == 0) bonePos.z += 36.f;
-            else bonePos.z += 54.f;
+            if (boneId == 7) bonePos.z += 72.f;      // Head
+            else if (boneId == 1) bonePos.z += 36.f; // Pelvis
+            else bonePos.z += 54.f;                  // Spine/Chest/Neck fallback
 
             if (boneArray) {
                 Vector3 b = CS2::GetBonePos(boneArray, boneId);
@@ -370,12 +365,12 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
             if (visible) {
                 selectedAimPoint = bonePos;
                 pointFound = true;
-                isBaim = (boneId != 6);
+                isBaim = (boneId != 7);
                 break;
             } else if (penetrable && !pointFound) {
                 selectedAimPoint = bonePos;
                 pointFound = true;
-                isBaim = (boneId != 6);
+                isBaim = (boneId != 7);
             }
         }
 
@@ -393,7 +388,7 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
             Vector3 fallbackHead = pos;
             fallbackHead.z += 72.f;
             if (boneArray) {
-                Vector3 b = CS2::GetBonePos(boneArray, 6);
+                Vector3 b = CS2::GetBonePos(boneArray, 7);
                 if (Dist3D(b, pos) < 300.f && std::isfinite(b.x)) fallbackHead = b;
             }
             selectedAimPoint = fallbackHead;
@@ -428,9 +423,7 @@ void Ragebot::Run(CUserCmd*) {
         m_firing = false; return;
     }
     if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) {
-        if (g_rageMouseDown) {
-            ReleaseRageMouse();
-        }
+        ReleaseRageMouse();
         CreateMoveHook::ClearRagebotAim(); return;
     }
     if (!GetForegroundWindow()) return;
@@ -494,15 +487,7 @@ void Ragebot::Run(CUserCmd*) {
                     va.x, va.y, bestAim.x, bestAim.y,
                     target.aimPoint.x, target.aimPoint.y, target.aimPoint.z);
     }
-    if (cfg->m_ragebotNoRecoil) {
-        uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
-        if (punchSvc) {
-            uintptr_t po = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
-            bestAim.x -= CS2::Read<float>(punchSvc + po);
-            bestAim.y += CS2::Read<float>(punchSvc + po + 4);
-            bestAim = NormAngles(bestAim);
-        }
-    }
+    // Recoil is compensated once, post-original, by the CreateMove hook.
 
     // Proper Silent Aim check: only write to camera angles (vaAddr) if visual Aimbot is enabled!
     if (cfg->m_ragebotVisualAimbot && vaAddr)
@@ -514,10 +499,7 @@ void Ragebot::Run(CUserCmd*) {
         if (!localScoped) {
             // Do not fire until the next tick observes m_bIsScoped.  The
             // scoped state is engine-owned; scope-removal must never clear it.
-            INPUT inp = {}; inp.type = INPUT_MOUSE;
-            inp.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN; SendInput(1, &inp, sizeof(inp));
-            inp.mi.dwFlags = MOUSEEVENTF_RIGHTUP;   SendInput(1, &inp, sizeof(inp));
-            CreateMoveHook::SetRagebotAim(bestAim, false, false);
+            CreateMoveHook::SetRagebotAim(bestAim, false, false, true);
             m_lastTarget = target.pawn; return;
         }
     }

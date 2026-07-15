@@ -86,12 +86,13 @@ inline uintptr_t GetActiveWeapon(uintptr_t listBase, uintptr_t pawn) {
 
 inline int GetWeaponDefinitionIndex(uintptr_t weapon) {
     if (!weapon) return 0;
-    // C_EconEntity::m_AttributeManager = 0x11A8 (4520)
-    uintptr_t attributes = Read<uintptr_t>(weapon + Offsets::Get("m_AttributeManager", 0x11A8));
-    if (!attributes) return 0;
-    // C_AttributeManager::m_Item = 0x50 (80), C_EconItemView::m_iItemDefinitionIndex = 0x1BA (442)
-    return Read<uint16_t>(attributes + 0x50 + 0x1BA);
+    // m_AttributeManager is an embedded struct inside C_EconEntity.
+    // C_EconItemView m_Item is at offset 0x50 inside C_AttributeContainer (m_AttributeManager).
+    // m_iItemDefinitionIndex is at offset 0x1BA inside C_EconItemView.
+    uintptr_t managerOffset = Offsets::Get("m_AttributeManager", 0x11A8);
+    return Read<uint16_t>(weapon + managerOffset + 0x50 + 0x1BA);
 }
+
 
 // Skeleton/bone helpers
 // pawn → m_pGameSceneNode(0x328) → m_modelState(+0x140) → bone array ptr (+0x80)

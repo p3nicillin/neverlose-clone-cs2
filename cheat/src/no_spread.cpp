@@ -198,16 +198,21 @@ bool NoSpread::CheckSpreadHit(uintptr_t localPawn, uintptr_t targetPawn,
 // ---- Recoil compensation (pure viewangle subtraction, no punch zeroing) ----
 Vector3 NoSpread::ApplyRecoilCompensationPre(uintptr_t localPawn) {
     uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
-    float px = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
-    float py = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
+    uintptr_t punchOff = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
+    float px = punchSvc ? CS2::Read<float>(punchSvc + punchOff) : 0.f;
+    float py = punchSvc ? CS2::Read<float>(punchSvc + punchOff + 4) : 0.f;
 
     uintptr_t vaAddr = Offsets::Get("dwViewAngles");
     if (vaAddr && (fabsf(px) > 0.001f || fabsf(py) > 0.001f)) {
         Vector3 va = CS2::Read<Vector3>(vaAddr);
-        va.x -= px;
-        va.y -= py;
+        // CS2 punch: pitch is positive when gun kicks UP (screen goes up),
+        // yaw is positive when gun kicks RIGHT. Subtract both * 2.0 to compensate.
+        va.x -= px * 2.0f;
+        va.y -= py * 2.0f;
         if (va.x >  89.f) va.x =  89.f;
         if (va.x < -89.f) va.x = -89.f;
+        while (va.y >  180.f) va.y -= 360.f;
+        while (va.y < -180.f) va.y += 360.f;
         Memory::Write(vaAddr, &va, sizeof(va));
     }
     return Vector3(px, py, 0.f);
@@ -215,18 +220,21 @@ Vector3 NoSpread::ApplyRecoilCompensationPre(uintptr_t localPawn) {
 
 void NoSpread::ApplyRecoilCompensationPost(uintptr_t localPawn, const Vector3& prePunch) {
     uintptr_t punchSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pAimPunchServices", 0x14B8));
-    float postPX = punchSvc ? CS2::Read<float>(punchSvc + 0x48) : 0.f;
-    float postPY = punchSvc ? CS2::Read<float>(punchSvc + 0x4C) : 0.f;
+    uintptr_t punchOff = Offsets::Get("m_vecCsViewPunchAngle", 0x48);
+    float postPX = punchSvc ? CS2::Read<float>(punchSvc + punchOff) : 0.f;
+    float postPY = punchSvc ? CS2::Read<float>(punchSvc + punchOff + 4) : 0.f;
     float dX = postPX - prePunch.x;
     float dY = postPY - prePunch.y;
 
     uintptr_t vaAddr = Offsets::Get("dwViewAngles");
     if (vaAddr && (fabsf(dX) > 0.001f || fabsf(dY) > 0.001f)) {
         Vector3 va = CS2::Read<Vector3>(vaAddr);
-        va.x -= dX;
-        va.y -= dY;
+        va.x -= dX * 2.0f;
+        va.y -= dY * 2.0f;
         if (va.x >  89.f) va.x =  89.f;
         if (va.x < -89.f) va.x = -89.f;
+        while (va.y >  180.f) va.y -= 360.f;
+        while (va.y < -180.f) va.y += 360.f;
         Memory::Write(vaAddr, &va, sizeof(va));
     }
 }

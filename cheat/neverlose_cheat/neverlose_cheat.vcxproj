@@ -202,6 +202,7 @@
     <ClCompile Include="..\src\utils.cpp" />
     <ClCompile Include="..\src\visuals.cpp" />
     <ClCompile Include="..\src\convar.cpp" />
+    <ClCompile Include="..\src\chams.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\antiaim.h" />
@@ -220,6 +221,7 @@
     <ClInclude Include="..\include\ui_manager.h" />
     <ClInclude Include="..\include\utils.h" />
     <ClInclude Include="..\include\visuals.h" />
+    <ClInclude Include="..\include\chams.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
