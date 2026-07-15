@@ -5,7 +5,7 @@
 // Reads/writes CCSGOInput view angles every game tick.
 class Aimbot {
 public:
-    static void Update();
+    static void Update(void* pInput = nullptr);
 
     static float CalcFov(const Vector3& va, const Vector3& aa);
     static Vector3 CalcAngle(const Vector3& src, const Vector3& dst);

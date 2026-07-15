@@ -21,8 +21,8 @@
 #include "logger.h"
 #include "config.h"
 #include "ui_manager.h"
-#include "game_classes.h"
 #include "cheat_core.h"
+#include "no_spread.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <cmath>
@@ -35,19 +35,19 @@ Visuals* g_Visuals = nullptr;
 // ---- CS2 bone connections (parent → child pairs) ----
 static const std::pair<int,int> kBoneLinks[] = {
     // Spine
-    {0,1},{1,2},{2,3},{3,4},{4,5},
+    {6,5},{5,4},{4,2},{2,0},
     // Left arm
-    {3,6},{6,7},{7,8},{8,9},
+    {5,8},{8,9},{9,10},
     // Right arm
-    {3,10},{10,11},{11,12},{12,13},
+    {5,13},{13,14},{14,15},
     // Left leg
-    {0,14},{14,15},{15,16},
+    {0,22},{22,23},{23,24},
     // Right leg
-    {0,18},{18,19},{19,20},
+    {0,25},{25,26},{26,27},
 };
 static const int kNumBoneLinks = (int)(sizeof(kBoneLinks)/sizeof(kBoneLinks[0]));
-// Highest bone index we use: must read at least 21 bones
-static const int kMaxBone = 21;
+// Highest bone index we use: CS2 bones go up to index 27 (feet)
+static const int kMaxBone = 28;
 
 Visuals::Visuals()
     : m_enabled(false), m_espEnabled(false), m_espBox(false)
@@ -68,6 +68,10 @@ Visuals::Visuals()
 {}
 
 // ---- helpers ----
+static float Dist3D(const Vector3& a, const Vector3& b) {
+    float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
 static ImU32 ToImU32(ImColor c) { return ImGui::ColorConvertFloat4ToU32(c); }
 
 static std::string GetWeaponNameByID(int id) {
@@ -186,11 +190,11 @@ void Visuals::Render() {
             pi.bonesValid = true;
             for (int b = 0; b <= kMaxBone; ++b)
                 pi.bones[b] = CS2::GetBonePos(boneArr, b);
-            // Bone 5 = head in standard CS2 model
-            if (std::isfinite(pi.bones[5].x) && std::isfinite(pi.bones[5].y) &&
-                std::isfinite(pi.bones[5].z) &&
-                (pi.bones[5].x != 0.f || pi.bones[5].y != 0.f || pi.bones[5].z != 0.f))
-                headPos = pi.bones[5];
+            // Bone 6 = head in standard CS2 model
+            if (std::isfinite(pi.bones[6].x) && std::isfinite(pi.bones[6].y) &&
+                std::isfinite(pi.bones[6].z) &&
+                (pi.bones[6].x != 0.f || pi.bones[6].y != 0.f || pi.bones[6].z != 0.f))
+                headPos = pi.bones[6];
         }
         pi.head = headPos;
 
@@ -235,96 +239,157 @@ void Visuals::Render() {
         float x1 = scrTop.x + w/2.f;
         float y1 = scrFeet.y;
 
-        // Overlay-backed glow/chams approximation. This keeps the feature
-        // functional without relying on unstable material-system vtables.
-        if (cfg->m_chamsEnabled && (pi.isEnemy ? cfg->m_chamsVisible : cfg->m_espTeammates)) {
-            ImColor fill = pi.isEnemy ? cfg->m_chamsVisibleColor : ImColor(80, 160, 255, 80);
-            ImVec4 fv = fill.Value;
-            fv.w *= 0.18f;
-            dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1),
-                              ImGui::ColorConvertFloat4ToU32(fv), 2.f);
+        // Chams/glow are rendered from the projected player bounds.  The old
+        // bone-capsule approximation expanded by world-space radii, which
+        // made it explode at close range and disappear at long range.
+        {
+            bool isVisible = false;
+            if (NoSpread::IsReady()) {
+                Vector3 localEye = { localOrigin.x, localOrigin.y, localOrigin.z + 64.f };
+                isVisible = NoSpread::TraceLine(localPawn, pi.pawn, localEye, pi.head) ||
+                            NoSpread::TraceLine(localPawn, pi.pawn, localEye, pi.origin);
+            } else {
+                isVisible = CS2::Read<bool>(pi.pawn + 0x1340) || (Dist3D(localOrigin, pi.origin) < 1500.f);
+            }
+
+            bool drawChams = false;
+            ImColor chamsCol;
+            if (isVisible) {
+                if (cfg->m_chamsEnabled && cfg->m_chamsVisible) {
+                    drawChams = true;
+                    chamsCol = cfg->m_chamsVisibleColor;
+                }
+            } else {
+                if (cfg->m_chamsEnabled && cfg->m_chamsHidden) {
+                    drawChams = true;
+                    chamsCol = cfg->m_chamsHiddenColor;
+                }
+            }
+
+            // ---- 1. GLOW LAYER ----
+            if (cfg->m_glowEnabled) {
+                ImVec4 gv = cfg->m_glowColor.Value;
+                float alpha = std::clamp(cfg->m_glowAlpha, 0.f, 1.f);
+                ImU32 outer = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .22f));
+                ImU32 inner = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .55f));
+                dl->AddRect(ImVec2(x0 - 5.f, y0 - 5.f), ImVec2(x1 + 5.f, y1 + 5.f), outer, 0.f, 0, 5.f);
+                dl->AddRect(ImVec2(x0 - 2.f, y0 - 2.f), ImVec2(x1 + 2.f, y1 + 2.f), inner, 0.f, 0, 2.f);
+            }
+
+            // ---- 2. MAIN CHAMS LAYER ----
+            if (drawChams) {
+                ImU32 colorU32 = ToImU32(chamsCol);
+                ImVec4 fill = chamsCol.Value;
+                fill.w *= .32f;
+                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), ImGui::ColorConvertFloat4ToU32(fill));
+                dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), colorU32, 0.f, 0, 1.5f);
+            }
         }
-        if (cfg->m_glowEnabled) {
-            ImVec4 gv = cfg->m_glowColor.Value;
-            gv.w = cfg->m_glowAlpha * 0.35f;
-            ImU32 glow = ImGui::ColorConvertFloat4ToU32(gv);
-            for (int g = 1; g <= 3; ++g)
-                dl->AddRect(ImVec2(x0 - g, y0 - g), ImVec2(x1 + g, y1 + g), glow, 2.f);
-        }
+
+        // Helper for drawing text with a dropshadow
+        auto drawTextWithShadow = [&](ImVec2 pos, ImU32 color, const char* text) {
+            dl->AddText(ImVec2(pos.x + 1.f, pos.y + 1.f), IM_COL32(0, 0, 0, 220), text);
+            dl->AddText(pos, color, text);
+        };
 
         // ---- Box ----
         if (cfg->m_espBox) {
-            // Corner box style (like neverlose.cc)
             float cw = w * 0.25f;
             float ch = h * 0.2f;
-            ImU32 outline = IM_COL32(0,0,0,180);
-            // Outer/inner shadow outlines
-            dl->AddRect(ImVec2(x0-1.f,y0-1.f), ImVec2(x1+1.f,y1+1.f), outline, 0.f, 1.f);
-            dl->AddRect(ImVec2(x0+1.f,y0+1.f), ImVec2(x1-1.f,y1-1.f), outline, 0.f, 1.f);
-            // Corner lines
-            auto corners = [&](float bx, float by, float ddx, float ddy){
-                dl->AddLine(ImVec2(bx,by), ImVec2(bx+ddx*cw,by),    col32, 1.5f);
-                dl->AddLine(ImVec2(bx,by), ImVec2(bx,by+ddy*ch),    col32, 1.5f);
+            
+            // Helper for drawing corner line with dropshadow
+            auto drawCornerLine = [&](ImVec2 p1, ImVec2 p2) {
+                // Drop shadow
+                dl->AddLine(ImVec2(p1.x - 1.f, p1.y), ImVec2(p2.x - 1.f, p2.y), IM_COL32(0, 0, 0, 200), 2.5f);
+                dl->AddLine(ImVec2(p1.x + 1.f, p1.y), ImVec2(p2.x + 1.f, p2.y), IM_COL32(0, 0, 0, 200), 2.5f);
+                dl->AddLine(ImVec2(p1.x, p1.y - 1.f), ImVec2(p2.x, p2.y - 1.f), IM_COL32(0, 0, 0, 200), 2.5f);
+                dl->AddLine(ImVec2(p1.x, p1.y + 1.f), ImVec2(p2.x, p2.y + 1.f), IM_COL32(0, 0, 0, 200), 2.5f);
+                // Main neon cyan/green line
+                dl->AddLine(p1, p2, col32, 1.5f);
             };
-            corners(x0,y0, 1.f, 1.f); corners(x1,y0,-1.f, 1.f);
-            corners(x0,y1, 1.f,-1.f); corners(x1,y1,-1.f,-1.f);
+
+            // Top-Left
+            drawCornerLine(ImVec2(x0, y0), ImVec2(x0 + cw, y0));
+            drawCornerLine(ImVec2(x0, y0), ImVec2(x0, y0 + ch));
+
+            // Top-Right
+            drawCornerLine(ImVec2(x1, y0), ImVec2(x1 - cw, y0));
+            drawCornerLine(ImVec2(x1, y0), ImVec2(x1, y0 + ch));
+
+            // Bottom-Left
+            drawCornerLine(ImVec2(x0, y1), ImVec2(x0 + cw, y1));
+            drawCornerLine(ImVec2(x0, y1), ImVec2(x0, y1 - ch));
+
+            // Bottom-Right
+            drawCornerLine(ImVec2(x1, y1), ImVec2(x1 - cw, y1));
+            drawCornerLine(ImVec2(x1, y1), ImVec2(x1, y1 - ch));
         }
 
         // ---- Health bar (left side) ----
         if (cfg->m_espHealthBar) {
             float pct   = hp / 100.f;
             float barH  = h * pct;
-            float bx    = x0 - 5.f;
-            ImU32 hcol  = hp > 60 ? IM_COL32(0,220,0,255) :
-                          hp > 30 ? IM_COL32(220,200,0,255) :
-                                    IM_COL32(220,50,50,255);
-            dl->AddRectFilled(ImVec2(bx-2,y0),        ImVec2(bx,y1),         IM_COL32(0,0,0,160));
-            dl->AddRectFilled(ImVec2(bx-2,y1-barH),   ImVec2(bx,y1),         hcol);
+            float bx    = x0 - 6.f;
+            
+            // Draw background bar
+            dl->AddRectFilled(ImVec2(bx - 2, y0), ImVec2(bx + 1, y1), IM_COL32(10, 12, 16, 200));
+            
+            // Health color logic: green -> yellow -> red vertical gradient
+            float r = pct > 0.5f ? 2.0f * (1.f - pct) : 1.0f;
+            float g = pct > 0.5f ? 1.0f : 2.0f * pct;
+            ImU32 topCol = IM_COL32((int)(r * 255.f), (int)(g * 255.f), 40, 255);
+            ImU32 botCol = IM_COL32(220, 50, 50, 255);
+            
+            dl->AddRectFilledMultiColor(
+                ImVec2(bx - 2, y1 - barH), // Min (Top-Left)
+                ImVec2(bx + 1, y1),        // Max (Bottom-Right)
+                topCol, topCol, botCol, botCol
+            );
         }
 
         // ---- Armor bar (right side) ----
         if (cfg->m_espArmorBar && pi.armor > 0) {
             float pct   = pi.armor / 100.f;
             float barH  = h * pct;
-            float bx    = x1 + 3.f;
-            dl->AddRectFilled(ImVec2(bx,y0),        ImVec2(bx+2,y1),       IM_COL32(0,0,0,160));
-            dl->AddRectFilled(ImVec2(bx,y1-barH),   ImVec2(bx+2,y1),       IM_COL32(80,160,255,255));
+            float bx    = x1 + 4.f;
+            dl->AddRectFilled(ImVec2(bx, y0), ImVec2(bx + 3, y1), IM_COL32(10, 12, 16, 200));
+            dl->AddRectFilled(ImVec2(bx, y1 - barH), ImVec2(bx + 3, y1), IM_COL32(0, 162, 255, 255));
         }
 
         // ---- Name ----
         if (cfg->m_espName) {
             ImVec2 ts = ImGui::CalcTextSize(pi.name.c_str());
-            dl->AddText(ImVec2(scrTop.x - ts.x*0.5f, y0 - ts.y - 2), col32, pi.name.c_str());
+            drawTextWithShadow(ImVec2(scrTop.x - ts.x * 0.5f, y0 - ts.y - 2), col32, pi.name.c_str());
         }
 
         // ---- Weapon ----
         if (cfg->m_espWeapon && !pi.weapon.empty()) {
             ImVec2 ts = ImGui::CalcTextSize(pi.weapon.c_str());
-            dl->AddText(ImVec2(scrTop.x - ts.x*0.5f, y1 + 2), IM_COL32(220,220,220,255), pi.weapon.c_str());
+            drawTextWithShadow(ImVec2(scrTop.x - ts.x * 0.5f, y1 + 2), IM_COL32(230, 230, 230, 255), pi.weapon.c_str());
         }
 
         // ---- Distance ----
         if (cfg->m_espDistance) {
-            float dx=origin.x-localOrigin.x, dy=origin.y-localOrigin.y, dz=origin.z-localOrigin.z;
-            int dist = (int)(sqrtf(dx*dx+dy*dy+dz*dz) * 0.0254f); // hammer→meters
+            float dx = origin.x - localOrigin.x, dy = origin.y - localOrigin.y, dz = origin.z - localOrigin.z;
+            int dist = (int)(sqrtf(dx * dx + dy * dy + dz * dz) * 0.0254f);
             char buf[16]; sprintf_s(buf, "%dm", dist);
             ImVec2 ts = ImGui::CalcTextSize(buf);
-            dl->AddText(ImVec2(scrTop.x - ts.x*0.5f, y1 + (cfg->m_espWeapon && !pi.weapon.empty() ? 14.f : 2.f)),
-                        IM_COL32(200,200,200,200), buf);
+            float textY = y1 + (cfg->m_espWeapon && !pi.weapon.empty() ? 14.f : 2.f);
+            drawTextWithShadow(ImVec2(scrTop.x - ts.x * 0.5f, textY), IM_COL32(200, 200, 200, 220), buf);
         }
 
         // ---- Flags ----
         if (cfg->m_espFlags) {
             float fy = y0;
-            auto addFlag = [&](const char* txt, ImU32 c){
-                dl->AddText(ImVec2(x1+4.f, fy), c, txt);
+            auto addFlag = [&](const char* txt, ImU32 c) {
+                drawTextWithShadow(ImVec2(x1 + (cfg->m_espArmorBar && pi.armor > 0 ? 10.f : 6.f), fy), c, txt);
                 fy += 13.f;
             };
-            if (pi.scoped) addFlag("SCOPED", IM_COL32(0,220,255,255));
+            if (pi.scoped) addFlag("SCOPED", IM_COL32(0, 220, 255, 255));
             uint32_t flags = CS2::Read<uint32_t>(pawn + Offsets::Get("m_fFlags", 0x3F8));
-            if (!(flags&1)) addFlag("AIR", IM_COL32(255,220,80,255));
-            bool reloading = CS2::Read<bool>(pawn + 0x1468); // rough offset
-            if (reloading) addFlag("RELOAD", IM_COL32(255,140,0,255));
+            if (!(flags & 1)) addFlag("AIR", IM_COL32(255, 220, 80, 255));
+            bool reloading = CS2::Read<bool>(pawn + 0x1468);
+            if (reloading) addFlag("RELOAD", IM_COL32(255, 140, 0, 255));
         }
 
         // ---- Skeleton ----
@@ -361,6 +426,9 @@ void Visuals::Render() {
 
     // ---- Radar ----
     if (cfg->m_radar) RenderRadar();
+
+    // ---- Sleek HUD Indicators ----
+    RenderIndicators();
 }
 
 void Visuals::RenderHitMarkers() {
@@ -623,5 +691,75 @@ void Visuals::RenderRadar() {
 void Visuals::AddHitMarker(bool headshot) {
     HitMarker m; m.time = GetTickCount(); m.headshot = headshot;
     m_hitMarkers.push_back(m);
+}
+
+void Visuals::RenderIndicators() {
+    Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
+    if (!cfg) return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+
+    // Align indicators in a clean, vertical stack on the left side of the screen
+    float startX = 20.f;
+    float startY = 270.f;
+    float width = 160.f;
+    float height = 30.f;
+    float spacing = 8.f;
+
+    struct IndicatorItem {
+        const char* name;
+        bool active;
+        const char* modeText;
+        ImU32 activeColor;
+    };
+
+    std::vector<IndicatorItem> items;
+
+    // 1. Aimbot Status
+    if (cfg->m_ragebotEnabled) {
+        items.push_back({ "RAGE AIM", true, "ACTIVE", IM_COL32(255, 50, 50, 255) });
+    } else if (cfg->m_aimbotEnabled) {
+        items.push_back({ "LEGIT AIM", true, "ACTIVE", IM_COL32(0, 200, 255, 255) });
+    } else {
+        items.push_back({ "AIMBOT", false, "DISABLED", IM_COL32(100, 100, 100, 255) });
+    }
+
+    // 2. Silent Aim / pSilent Status
+    if (cfg->m_ragebotEnabled) {
+        bool silent = cfg->m_ragebotSilentAimbot;
+        items.push_back({ "pSILENT", silent, silent ? "ON" : "OFF", silent ? IM_COL32(0, 255, 120, 255) : IM_COL32(180, 180, 180, 255) });
+    }
+
+    // 3. Anti-Aim (Desync / FakeLag)
+    if (cfg->m_antiaimEnabled) {
+        items.push_back({ "DESYNC", cfg->m_antiaimDesync, cfg->m_antiaimDesync ? "ACTIVE" : "INERT", cfg->m_antiaimDesync ? IM_COL32(0, 200, 255, 255) : IM_COL32(180, 180, 180, 255) });
+        if (cfg->m_antiaimFakeLag) {
+            items.push_back({ "FAKELAG", true, "ACTIVE", IM_COL32(255, 180, 0, 255) });
+        }
+    }
+
+    // 4. Knifebot Status
+    if (cfg->m_knifeBot) {
+        items.push_back({ "KNIFEBOT", true, "READY", IM_COL32(200, 50, 255, 255) });
+    }
+
+    // Draw indicators stack
+    for (size_t i = 0; i < items.size(); ++i) {
+        float y = startY + i * (height + spacing);
+        
+        // Deep glassmorphic panel background
+        dl->AddRectFilled(ImVec2(startX, y), ImVec2(startX + width, y + height), IM_COL32(10, 12, 16, 200), 5.f);
+        
+        // Premium accent left-border glow line
+        dl->AddLine(ImVec2(startX, y + 2.f), ImVec2(startX, y + height - 2.f), items[i].active ? items[i].activeColor : IM_COL32(80, 80, 90, 255), 2.5f);
+
+        // Indicator Name Text
+        dl->AddText(ImVec2(startX + 10.f, y + height * 0.5f - 6.f), IM_COL32(240, 240, 245, 255), items[i].name);
+
+        // State indicator text (right-aligned)
+        ImVec2 size = ImGui::CalcTextSize(items[i].modeText);
+        dl->AddText(ImVec2(startX + width - size.x - 10.f, y + height * 0.5f - 6.f), items[i].active ? items[i].activeColor : IM_COL32(120, 120, 130, 255), items[i].modeText);
+    }
 }
 

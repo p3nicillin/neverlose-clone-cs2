@@ -256,3 +256,94 @@ void* NoSpread::GetTraceManager() {
     }
     return s_mgr;
 }
+
+bool NoSpread::TraceLine(uintptr_t localPawn, uintptr_t targetPawn, const Vector3& start, const Vector3& end) {
+    if (!s_ready || !localPawn) return false;
+    void* mgr = GetTraceManager();
+    if (!mgr) return false;
+
+    TraceFilter_t filter = {};
+    s_createFilter(filter, (void*)localPawn, 0x1C3003LL, 4, 15);
+
+    Ray_t ray = {};
+    GameTrace_t trace = {};
+    Vector3 s = start;
+    Vector3 e = end;
+    s_traceShape(mgr, ray, &s, &e, filter, trace);
+
+    if (trace.fraction >= 0.99f || trace.entity == (void*)targetPawn) {
+        return true;
+    }
+    return false;
+}
+
+float NoSpread::GetTraceFraction(uintptr_t localPawn, uintptr_t targetPawn, const Vector3& start, const Vector3& end, Vector3* hitOffset) {
+    if (!s_ready || !localPawn) return 0.f;
+    void* mgr = GetTraceManager();
+    if (!mgr) return 0.f;
+
+    TraceFilter_t filter = {};
+    s_createFilter(filter, (void*)localPawn, 0x1C3003LL, 4, 15);
+
+    Ray_t ray = {};
+    GameTrace_t trace = {};
+    Vector3 s = start;
+    Vector3 e = end;
+    s_traceShape(mgr, ray, &s, &e, filter, trace);
+
+    if (hitOffset) {
+        *hitOffset = start + (end - start) * trace.fraction;
+    }
+    return trace.fraction;
+}
+
+Vector3 NoSpread::CompensateSpread(const Vector3& aimAngles, uintptr_t localPawn, int seq) {
+    if (!s_ready || !localPawn) return aimAngles;
+
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+    if (!entityList) return aimAngles;
+
+    uintptr_t wSvc = CS2::Read<uintptr_t>(localPawn + Offsets::Get("m_pWeaponServices", 0x1208));
+    uint32_t wH = wSvc ? CS2::Read<uint32_t>(wSvc + 0x60) : 0;
+    uintptr_t wep = wH ? CS2::HandleToPtr(entityList, wH) : 0;
+    if (!wep) return aimAngles;
+
+    float accuracy = CS2::Read<float>(wep + 0x17D0);
+    float spread = CS2::Read<float>(wep + 0x758);
+    float recoilIndex = CS2::Read<float>(wep + 0x17E0);
+    int weaponIdx = CS2::Read<int>(wep + 0x7C0);
+
+    uint32_t seed = GetHashSeed(localPawn, aimAngles, seq);
+    Vector3 dev = CalcSpread(seed, accuracy, spread, recoilIndex, weaponIdx);
+
+    float pitchRad = aimAngles.x * 3.14159265f / 180.f;
+    float yawRad = aimAngles.y * 3.14159265f / 180.f;
+    float cosPitch = cosf(pitchRad), sinPitch = sinf(pitchRad);
+    float cosYaw = cosf(yawRad), sinYaw = sinf(yawRad);
+
+    Vector3 fwd = { cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch };
+    Vector3 right = { sinYaw, -cosYaw, 0.f };
+    Vector3 up = { sinPitch * cosYaw, sinPitch * sinYaw, cosPitch };
+
+    Vector3 dir = {
+        fwd.x + right.x * dev.x - up.x * dev.y,
+        fwd.y + right.y * dev.x - up.y * dev.y,
+        fwd.z + right.z * dev.x - up.z * dev.y
+    };
+
+    float len = sqrtf(dir.x*dir.x + dir.y*dir.y + dir.z*dir.z);
+    if (len > 0.f) { dir.x /= len; dir.y /= len; dir.z /= len; }
+
+    float pitch = -atan2f(dir.z, sqrtf(dir.x*dir.x + dir.y*dir.y)) * (180.f / 3.14159265f);
+    float yaw = atan2f(dir.y, dir.x) * (180.f / 3.14159265f);
+
+    Vector3 comp = { pitch, yaw, 0.f };
+    while (comp.x > 89.f) comp.x -= 180.f;
+    while (comp.x < -89.f) comp.x += 180.f;
+    while (comp.y > 180.f) comp.y -= 360.f;
+    while (comp.y < -180.f) comp.y += 360.f;
+    comp.z = 0.f;
+
+    return comp;
+}

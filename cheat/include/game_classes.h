@@ -86,9 +86,11 @@ inline uintptr_t GetActiveWeapon(uintptr_t listBase, uintptr_t pawn) {
 
 inline int GetWeaponDefinitionIndex(uintptr_t weapon) {
     if (!weapon) return 0;
-    uintptr_t attributes = Read<uintptr_t>(weapon + 0x1200);
+    // C_EconEntity::m_AttributeManager = 0x11A8 (4520)
+    uintptr_t attributes = Read<uintptr_t>(weapon + Offsets::Get("m_AttributeManager", 0x11A8));
     if (!attributes) return 0;
-    return Read<int>(attributes + 0x40 + 0x1BA);
+    // C_AttributeManager::m_Item = 0x50 (80), C_EconItemView::m_iItemDefinitionIndex = 0x1BA (442)
+    return Read<uint16_t>(attributes + 0x50 + 0x1BA);
 }
 
 // Skeleton/bone helpers

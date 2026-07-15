@@ -9,17 +9,16 @@
 //   (which causes mouse lock / view snap the user experiences).
 //
 // Fire: via CreateMove CUserCmd m_nButtons IN_ATTACK (bit 0).
-//       NOT SendInput for fire (only SendInput for right-click scope).
+//       NOT SendInput for fire; CreateMove owns the command buttons.
 //
 // Visibility: CS2 m_entitySpottedState (pawn+0x1340) + 4000 unit gate.
 // Target: lowest FOV-to-crosshair, head bone (bone 5 = head in CS2).
-// =================================================================
-
 #include "ragebot.h"
 #include "create_move.h"
 #include "game_classes.h"
 #include "memory.h"
 #include "offsets.h"
+#include "no_spread.h"
 #include "logger.h"
 #include "config.h"
 #include "cheat_core.h"
@@ -116,7 +115,11 @@ bool Ragebot::IsSniper(uintptr_t entityList, uintptr_t localPawn) {
     return (wid == 9 || wid == 11 || wid == 38 || wid == 40);
 }
 
-bool Ragebot::IsVisible(uintptr_t, uintptr_t targetPawn, const Vector3& srcEye, const Vector3&) {
+bool Ragebot::IsVisible(uintptr_t localPawn, uintptr_t targetPawn, const Vector3& srcEye, const Vector3& targetPos) {
+    if (NoSpread::IsReady() && localPawn) {
+        return NoSpread::TraceLine(localPawn, targetPawn, srcEye, targetPos);
+    }
+    // Fallback
     bool spotted = CS2::Read<bool>(targetPawn + 0x1340);
     if (spotted) return true;
     Vector3 enemyOrg = CS2::GetAbsOrigin(targetPawn);
@@ -130,26 +133,38 @@ float Ragebot::ResolveYaw(int idx, float observedYaw) {
 
     EntityState& state = StateFor(idx);
 
+    uintptr_t listAddr = Offsets::Get("dwEntityList");
+    uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
+    if (!entityList) return observedYaw;
+
+    uintptr_t pawn = CS2::GetEntityByIndex(entityList, idx);
+    if (!pawn) return observedYaw;
+
+    // Check speed
+    Vector3 vel = CS2::Read<Vector3>(pawn + Offsets::Get("m_vecVelocity", 0x430));
+    float speed = sqrtf(vel.x * vel.x + vel.y * vel.y);
+
+    if (speed > 5.0f) {
+        // Player is moving - desync is less effective, follow velocity angle
+        float moveYaw = atan2f(vel.y, vel.x) * (180.f / 3.14159265f);
+        return moveYaw;
+    }
+
     // Track the last two distinct observed yaws to construct a history base
     if (fabsf(observedYaw - state.lastYaw[0]) > 10.f) {
         state.lastYaw[1] = state.lastYaw[0];
         state.lastYaw[0] = observedYaw;
     }
 
-    if (cfg->m_ragebotResolverMode == 0) { // Auto: Alternate angles (+/- 60 degrees from observed)
-        state.resolverFlip = !state.resolverFlip;
-        return state.resolverFlip ? observedYaw + 60.f : observedYaw - 60.f;
+    if (cfg->m_ragebotResolverMode == 0) { // Auto: Alternate between common desync offsets (+58, -58, +180)
+        state.resolverFlip = (state.resolverFlip + 1) % 3;
+        if (state.resolverFlip == 0) return observedYaw + 58.f;
+        if (state.resolverFlip == 1) return observedYaw - 58.f;
+        return observedYaw + 180.f;
     } 
     else if (cfg->m_ragebotResolverMode == 1) { // LBY: Target the Lower Body Yaw target (typically offset 0x1408)
-        uintptr_t listAddr = Offsets::Get("dwEntityList");
-        uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
-        if (entityList) {
-            uintptr_t pawn = CS2::GetEntityByIndex(entityList, idx);
-            if (pawn) {
-                float lby = CS2::Read<float>(pawn + Offsets::Get("m_flLowerBodyYawTarget", 0x1408));
-                if (lby != 0.f) return lby;
-            }
-        }
+        float lby = CS2::Read<float>(pawn + Offsets::Get("m_flLowerBodyYawTarget", 0x1408));
+        if (lby != 0.f) return lby;
     } 
     else if (cfg->m_ragebotResolverMode == 2) { // History: Flip between the two last observed distinct yaws
         state.resolverFlip = !state.resolverFlip;
@@ -163,7 +178,7 @@ float Ragebot::ResolveYaw(int idx, float observedYaw) {
 // ---- Backtrack Update Records ----
 void Ragebot::AutoStop(uintptr_t localPawn) {
     Vector3 zeroVel = { 0.f, 0.f, 0.f };
-    Memory::Write(localPawn + Offsets::Get("m_vecVelocity", 0x3F4), &zeroVel, sizeof(Vector3));
+    Memory::Write(localPawn + Offsets::Get("m_vecVelocity", 0x430), &zeroVel, sizeof(Vector3));
 }
 
 void Ragebot::UpdateRecords(uintptr_t entityList, uintptr_t localCtrl) {
@@ -191,12 +206,12 @@ void Ragebot::UpdateRecords(uintptr_t entityList, uintptr_t localCtrl) {
         EntityState& state = StateFor(i);
         int headIdx = state.head;
 
-        // Fetch head bone (bone 5)
+        // Fetch head bone (bone 6)
         Vector3 headPos = CS2::GetAbsOrigin(pawn);
         headPos.z += 72.f; // Fallback
         uintptr_t bones = CS2::GetBoneArray(pawn);
         if (bones) {
-            Vector3 hb = CS2::GetBonePos(bones, 5);
+            Vector3 hb = CS2::GetBonePos(bones, 6);
             if (Dist3D(hb, CS2::GetAbsOrigin(pawn)) < 300.f) {
                 headPos = hb;
             }
@@ -219,7 +234,6 @@ void Ragebot::UpdateRecords(uintptr_t entityList, uintptr_t localCtrl) {
 bool Ragebot::GetBacktrackPoint(int idx, float maxTimeMs, Vector3& outHead) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_ragebotBacktrack) return false;
-
     EntityState& state = StateFor(idx);
     DWORD now = GetTickCount();
     float maxTime = maxTimeMs * 1000.f; // s to ms
@@ -239,11 +253,12 @@ bool Ragebot::GetBacktrackPoint(int idx, float maxTimeMs, Vector3& outHead) {
     return false;
 }
 
+
+
 // ---- Hitchance Estimation ----
 float Ragebot::EstimateHitchance(float fov, float distance, bool moving) {
-    // Basic hitchance metric based on distance, player velocity, and crosshair offset
     float baseHitchance = 100.f;
-    float distPenalty = (distance / 1000.f) * 15.f; // more distance, lower accuracy
+    float distPenalty = (distance / 1000.f) * 15.f;
     float movePenalty = moving ? 40.f : 0.f;
     float fovPenalty = fov * 10.f;
 
@@ -253,10 +268,8 @@ float Ragebot::EstimateHitchance(float fov, float distance, bool moving) {
     return hc;
 }
 
-// ---- Damage Estimation ----
 float Ragebot::EstimateDamage(float distance, int targetArmor) {
-    // Estimate base weapon damage drop-off
-    float baseDmg = 35.f; // AK47 average
+    float baseDmg = 35.f;
     float distanceDrop = (distance / 1000.f) * 4.f;
     float armorReduction = targetArmor > 0 ? 0.75f : 1.f;
     float finalDmg = (baseDmg - distanceDrop) * armorReduction;
@@ -271,8 +284,6 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
     if (!cfg) return bestTarget;
 
     float bestFov = cfg->m_ragebotFOV > 0.f ? cfg->m_ragebotFOV : 180.f;
-    Vector3 localVelocity = CS2::Read<Vector3>(localPawn + Offsets::Get("m_vecVelocity", 0x3F4));
-    bool isLocalMoving = (localVelocity.x*localVelocity.x + localVelocity.y*localVelocity.y) > 200.f;
 
     for (int i = 1; i <= 64; ++i) {
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
@@ -294,45 +305,114 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         float dist = Dist3D(eyePos, pos);
         if (dist > 4000.f) continue;
 
-        Vector3 aimPoint = pos;
-        aimPoint.z += 72.f; // Fallback
-        bool useBaim = false;
+        // Velocity for linear extrapolation
+        Vector3 targetVel = CS2::Read<Vector3>(pawn + Offsets::Get("m_vecVelocity", 0x430));
 
-        // Use the stable upper-body/head-height point only as a fallback. The
-        // record updater already validates bone 5 against the pawn origin, so
-        // reuse that same validated bone path for the live target too.
-        aimPoint.z = pos.z + 64.f;
-        uintptr_t bones = CS2::GetBoneArray(pawn);
-        if (bones) {
-            Vector3 head = CS2::GetBonePos(bones, 5);
-            if (Dist3D(head, pos) < 300.f &&
-                std::isfinite(head.x) && std::isfinite(head.y) && std::isfinite(head.z))
-                aimPoint = head;
+        // Scan multiple bones for HvH optimization
+        std::vector<int> bonesToScan;
+        if (cfg->m_ragebotMultipoint) {
+            bonesToScan = { 6, 5, 4, 2, 0 }; // Head, Neck, Chest, Spine, Pelvis
+        } else {
+            bonesToScan = { 6, 0 }; // Head, Pelvis
         }
-        if (cfg->m_ragebotBacktrack) {
+
+        uintptr_t boneArray = CS2::GetBoneArray(pawn);
+        Vector3 selectedAimPoint = {};
+        bool pointFound = false;
+        bool isBaim = false;
+
+        for (int boneId : bonesToScan) {
+            Vector3 bonePos = pos;
+            if (boneId == 6) bonePos.z += 72.f;
+            else if (boneId == 0) bonePos.z += 36.f;
+            else bonePos.z += 54.f;
+
+            if (boneArray) {
+                Vector3 b = CS2::GetBonePos(boneArray, boneId);
+                if (Dist3D(b, pos) < 300.f && std::isfinite(b.x)) {
+                    bonePos = b;
+                }
+            }
+
+            // Target prediction (dynamic linear extrapolation using real latency)
+            if (cfg->m_ragebotExtrapolation) {
+                int pingMs = CS2::Read<int>(localCtrl + 0x718);
+                if (pingMs <= 0 || pingMs > 500) pingMs = CS2::Read<int>(localCtrl + 0x720);
+                if (pingMs <= 0 || pingMs > 500) pingMs = CS2::Read<int>(localCtrl + 0x740);
+                if (pingMs <= 0 || pingMs > 500) pingMs = 40; // fallback to 40ms
+                float ping = (float)pingMs / 1000.f;
+
+                bonePos.x += targetVel.x * ping;
+                bonePos.y += targetVel.y * ping;
+                bonePos.z += targetVel.z * ping;
+            }
+
+            bool visible = IsVisible(localPawn, pawn, eyePos, bonePos);
+            bool penetrable = false;
+
+            if (!visible && NoSpread::IsReady()) {
+                Vector3 hitPoint;
+                float fraction = NoSpread::GetTraceFraction(localPawn, pawn, eyePos, bonePos, &hitPoint);
+                if (fraction < 0.99f) {
+                    Vector3 dir = bonePos - eyePos;
+                    float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+                    if (dirLen > 1.f) {
+                        dir = dir / dirLen;
+                        Vector3 stepAhead = hitPoint + dir * 25.f; // penetrate up to 25 units
+                        float secFraction = NoSpread::GetTraceFraction(localPawn, pawn, stepAhead, bonePos);
+                        if (secFraction > 0.92f) {
+                            penetrable = true;
+                        }
+                    }
+                }
+            }
+
+            if (visible) {
+                selectedAimPoint = bonePos;
+                pointFound = true;
+                isBaim = (boneId != 6);
+                break;
+            } else if (penetrable && !pointFound) {
+                selectedAimPoint = bonePos;
+                pointFound = true;
+                isBaim = (boneId != 6);
+            }
+        }
+
+        // Backtrack check
+        if (!pointFound && cfg->m_ragebotBacktrack) {
             Vector3 historical{};
-            if (GetBacktrackPoint(i, cfg->m_ragebotBacktrackTime, historical))
-                aimPoint = historical;
+            if (GetBacktrackPoint(i, cfg->m_ragebotBacktrackTime, historical)) {
+                selectedAimPoint = historical;
+                pointFound = true;
+            }
         }
 
-        // Baseline rage selection must not be blocked by approximate trace,
-        // hitchance, damage, or resolver data. Those are optional refinements
-        // and are applied only after a valid target is selected.
-        float fov = ::CalcFov(viewAng, ::CalcAngle(eyePos, aimPoint));
+        // Fallback head bone
+        if (!pointFound) {
+            Vector3 fallbackHead = pos;
+            fallbackHead.z += 72.f;
+            if (boneArray) {
+                Vector3 b = CS2::GetBonePos(boneArray, 6);
+                if (Dist3D(b, pos) < 300.f && std::isfinite(b.x)) fallbackHead = b;
+            }
+            selectedAimPoint = fallbackHead;
+        }
+
+        float fov = ::CalcFov(viewAng, ::CalcAngle(eyePos, selectedAimPoint));
         if (fov < bestFov) {
             bestFov = fov;
             bestTarget.pawn = pawn;
             bestTarget.controller = ctrl;
             bestTarget.index = i;
-            bestTarget.aimPoint = aimPoint;
+            bestTarget.aimPoint = selectedAimPoint;
             bestTarget.fov = fov;
-            bestTarget.baim = useBaim;
+            bestTarget.baim = isBaim;
             bestTarget.valid = true;
         }
     }
     return bestTarget;
 }
-
 
 // ====================================================================
 // Run() — ~1000Hz from CheatCore::Update()
@@ -424,25 +504,19 @@ void Ragebot::Run(CUserCmd*) {
         }
     }
 
-    // Fallback for builds where the CreateMove serializer does not consume
-    // CCSGOInput::angViewAngles. Keep the legacy client angle store aligned so
-    // the shot direction and the command path agree.
-    if (vaAddr)
+    // Proper Silent Aim check: only write to camera angles (vaAddr) if visual Aimbot is enabled!
+    if (cfg->m_ragebotVisualAimbot && vaAddr)
         Memory::Write(vaAddr, &bestAim, sizeof(bestAim));
 
     // ---- Auto-scope ----
     if (cfg->m_ragebotQuickScope && IsSniper(list, lp)) {
         bool localScoped = CS2::Read<bool>(lp + Offsets::Get("m_bIsScoped", 0x1C70));
         if (!localScoped) {
-            static DWORD lastScope = 0;
-            DWORD now = GetTickCount();
-            if (now - lastScope > 120) {
-                INPUT inp = {}; inp.type = INPUT_MOUSE;
-                inp.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN; SendInput(1, &inp, sizeof(inp));
-                Sleep(20);
-                inp.mi.dwFlags = MOUSEEVENTF_RIGHTUP;   SendInput(1, &inp, sizeof(inp));
-                lastScope = now;
-            }
+            // Do not fire until the next tick observes m_bIsScoped.  The
+            // scoped state is engine-owned; scope-removal must never clear it.
+            INPUT inp = {}; inp.type = INPUT_MOUSE;
+            inp.mi.dwFlags = MOUSEEVENTF_RIGHTDOWN; SendInput(1, &inp, sizeof(inp));
+            inp.mi.dwFlags = MOUSEEVENTF_RIGHTUP;   SendInput(1, &inp, sizeof(inp));
             CreateMoveHook::SetRagebotAim(bestAim, false, false);
             m_lastTarget = target.pawn; return;
         }
@@ -456,22 +530,5 @@ void Ragebot::Run(CUserCmd*) {
     // ---- Pass aim + fire intent to CreateMove hook ----
     bool wantFire = cfg->m_ragebotAutoFire || (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
     CreateMoveHook::SetRagebotAim(bestAim, wantFire, cfg->m_ragebotAutoStop);
-    if (wantFire) {
-        if (!g_rageMouseDown) {
-            INPUT inp{};
-            inp.type = INPUT_MOUSE;
-            inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-            SendInput(1, &inp, sizeof(inp));
-            g_rageMouseDown = true;
-        }
-    } else {
-        if (g_rageMouseDown) {
-            INPUT inp{};
-            inp.type = INPUT_MOUSE;
-            inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-            SendInput(1, &inp, sizeof(inp));
-            g_rageMouseDown = false;
-        }
-    }
     m_lastTarget = target.pawn;
 }

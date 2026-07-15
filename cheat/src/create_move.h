@@ -36,6 +36,7 @@ public:
     static void Uninstall();
 
     static void OnCreateMove(uintptr_t input, CS2UserCmd* cmd, bool active);
+    static void ApplyAngle(void* pInput, const Vector3& angle, bool silent = true);
 
     static bool IsActive() { return s_installed; }
 

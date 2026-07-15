@@ -8,16 +8,18 @@
 #include "memory.h"
 #include "cheat_core.h"
 #include "config.h"
+#include "ui_manager.h"
 #include "aimbot.h"
 #include <windows.h>
 #include <cmath>
 
-void Triggerbot::Update() {
+void Triggerbot::Update(void* pInput) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_triggerbotEnabled) return;
 
-    // Safety: only when CS2 is foreground
+    // Safety: only when CS2 is foreground and menu is closed
     if (GetForegroundWindow() == NULL) return;
+    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) return;
 
     uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
     uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
@@ -38,7 +40,12 @@ void Triggerbot::Update() {
     if (origin.x == 0.f && origin.y == 0.f) return;
 
     Vector3 eyePos  = { origin.x, origin.y, origin.z + 64.f };
-    Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
+    Vector3 viewAng;
+    if (pInput)
+        viewAng = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
+    else
+        viewAng = CS2::Read<Vector3>(viewAngAddr);
+
     int     myTeam  = CS2::GetTeam(localPawn);
 
     bool onTarget = false;
@@ -72,22 +79,32 @@ void Triggerbot::Update() {
     static bool  mouseDown  = false;
     DWORD now = GetTickCount();
 
-    if (onTarget && !mouseDown) {
+    if (onTarget) {
         if (now - fireSince >= (DWORD)cfg->m_triggerbotDelay) {
-            INPUT inp = {}; inp.type = INPUT_MOUSE;
-            inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-            SendInput(1, &inp, sizeof(INPUT));
-            mouseDown = true;
+            if (pInput) {
+                // Command-path firing: set IN_ATTACK in CUserCmd
+                int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pInput + 0x0A74);
+                int      idx  = ((seq % 150) + 150) % 150;
+                uintptr_t pCmd = (uintptr_t)pInput + 0x0250 + (uintptr_t)idx * 0x88;
+                uint64_t cur = CS2::Read<uint64_t>(pCmd + 0x38);
+                cur |= 1ULL;
+                Memory::Write(pCmd + 0x38, &cur, 8);
+            } else if (!mouseDown) {
+                INPUT inp = {}; inp.type = INPUT_MOUSE;
+                inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+                SendInput(1, &inp, sizeof(INPUT));
+                mouseDown = true;
+            }
         } else if (fireSince == 0) {
             fireSince = now;
         }
-    } else if (!onTarget && mouseDown) {
-        INPUT inp = {}; inp.type = INPUT_MOUSE;
-        inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        SendInput(1, &inp, sizeof(INPUT));
-        mouseDown  = false;
-        fireSince  = 0;
-    } else if (!onTarget) {
+    } else {
         fireSince = 0;
+        if (mouseDown && !pInput) {
+            INPUT inp = {}; inp.type = INPUT_MOUSE;
+            inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            SendInput(1, &inp, sizeof(INPUT));
+            mouseDown = false;
+        }
     }
 }

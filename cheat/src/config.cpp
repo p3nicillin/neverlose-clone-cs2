@@ -81,7 +81,8 @@ void Config::LoadDefaultConfig() {
     m_ragebotBacktrack = true;
     m_ragebotBacktrackTime = 0.2f;
     m_ragebotQuickScope = true;
-    m_ragebotVisualAimbot = true;
+    m_ragebotSilentAimbot = true;
+    m_ragebotVisualAimbot = false; // silent by default, visual as option
     m_ragebotLegMovement = false;
     m_ragebotMultipoint = true;
     m_ragebotMultipointScale = 0.5f;
@@ -232,6 +233,7 @@ bool Config::Save(const std::string& name) {
         j["ragebot"]["backtrack"] = m_ragebotBacktrack;
         j["ragebot"]["backtrack_time"] = m_ragebotBacktrackTime;
         j["ragebot"]["quick_scope"] = m_ragebotQuickScope;
+        j["ragebot"]["silent_aimbot"] = m_ragebotSilentAimbot;
         j["ragebot"]["visual_aimbot"] = m_ragebotVisualAimbot;
         j["ragebot"]["leg_movement"] = m_ragebotLegMovement;
         j["ragebot"]["multipoint"] = m_ragebotMultipoint;
@@ -405,6 +407,7 @@ bool Config::Load(const std::string& name) {
             if (r.contains("backtrack")) m_ragebotBacktrack = r["backtrack"];
             if (r.contains("backtrack_time")) m_ragebotBacktrackTime = r["backtrack_time"];
             if (r.contains("quick_scope")) m_ragebotQuickScope = r["quick_scope"];
+            if (r.contains("silent_aimbot")) m_ragebotSilentAimbot = r["silent_aimbot"];
             if (r.contains("visual_aimbot")) m_ragebotVisualAimbot = r["visual_aimbot"];
             if (r.contains("leg_movement")) m_ragebotLegMovement = r["leg_movement"];
             if (r.contains("multipoint")) m_ragebotMultipoint = r["multipoint"];

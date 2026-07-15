@@ -150,10 +150,6 @@ void CheatCore::Update() {
     // Update misc features (bhop, no recoil, no flash)
     m_misc->Update();
 
-    // Aimbot + Triggerbot
-    Aimbot::Update();
-    Triggerbot::Update();
-
     // Check for cheats
     m_revealer->Detect();
 

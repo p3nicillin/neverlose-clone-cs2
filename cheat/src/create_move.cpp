@@ -34,6 +34,9 @@
 #include "memory.h"
 #include "logger.h"
 #include "game_classes.h"
+#include "aimbot.h"
+#include "triggerbot.h"
+#include "no_spread.h"
 #include <windows.h>
 #include <cmath>
 #include <process.h>
@@ -129,16 +132,19 @@ static bool SafeCallOriginal(void* pThis, int nSlot, float t, bool active) {
 
 // ---- Apply an angle through CCSGOInput ----
 // Two-pronged: write to angViewAngles (0x0BE0) AND through the CUserCmd chain.
-static void ApplyAngle(void* pInput, const Vector3& angle) {
+void CreateMoveHook::ApplyAngle(void* pInput, const Vector3& angle, bool silent) {
     uintptr_t inp = (uintptr_t)pInput;
     Vector3 compensated = angle;
-    // Keep the client angle backing store synchronized as well. Some CS2
-    // builds serialize from this global rather than CCSGOInput::angViewAngles;
-    // omitting it leaves the player looking straight ahead while fire still
-    // works.
-    uintptr_t globalAngles = Offsets::Get("dwViewAngles");
-    if (globalAngles)
-        Memory::Write(globalAngles, &compensated, sizeof(compensated));
+
+    if (!silent) {
+        // Keep the client angle backing store synchronized as well. Some CS2
+        // builds serialize from this global rather than CCSGOInput::angViewAngles;
+        // omitting it leaves the player looking straight ahead while fire still
+        // works (silent/psilent aim).
+        uintptr_t globalAngles = Offsets::Get("dwViewAngles");
+        if (globalAngles)
+            Memory::Write(globalAngles, &compensated, sizeof(compensated));
+    }
 
     // 1. CCSGOInput::angViewAngles — this IS what CS2 uses for bullet direction
     Memory::Write(inp + 0x0BE0, (void*)&compensated, sizeof(Vector3));
@@ -149,8 +155,8 @@ static void ApplyAngle(void* pInput, const Vector3& angle) {
     int      idx = ((seq % 150) + 150) % 150;
     uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
 
-    // CCSGOUserCmdPB starts at cmd+0x20, m_pBaseCmd at +0x18 within → cmd+0x38
-    uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
+    // CCSGOUserCmdPB starts at cmd+0x20, m_pBaseCmd at +0x28 within → cmd+0x48
+    uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x48);
     if (pBaseCmd > 0x100000) {
         // CBaseUserCmdPB::m_pViewangles at +0x30 → CMsgQAngle*
         uintptr_t pViewAng = CS2::Read<uintptr_t>(pBaseCmd + 0x30);
@@ -217,6 +223,19 @@ static void SetAttack(void* pInput, bool attack) {
     Memory::Write(pCmd + 0x38, &cur, 8);
 }
 
+// Scope is a command button just like primary fire.  Keeping this in the
+// CreateMove path avoids SendInput racing the game's focus/input handling.
+static void SetSecondaryAttack(void* pInput, bool attack) {
+    uintptr_t inp = (uintptr_t)pInput;
+    int32_t seq = CS2::Read<int32_t>(inp + 0x0A74);
+    int idx = ((seq % 150) + 150) % 150;
+    uintptr_t pCmd = inp + 0x0250 + (uintptr_t)idx * 0x88;
+    uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
+    if (attack) buttons |= (1ULL << 11); // IN_ATTACK2
+    else        buttons &= ~(1ULL << 11);
+    Memory::Write(pCmd + 0x38, &buttons, sizeof(buttons));
+}
+
 // ---- Hooked CreateMove ----
 static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active) {
     ++g_cmCalls;
@@ -232,11 +251,11 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         if (cfg->m_ragebotNoRecoil)
             ApplyRageRecoilToInput(pThis, lp);
         if (state.rbHasTarget) {
-            ApplyAngle(pThis, state.rbAimAngle);
+            CreateMoveHook::ApplyAngle(pThis, state.rbAimAngle, cfg->m_ragebotSilentAimbot);
             if (state.rbWantFire)
                 SetAttack(pThis, true);
         } else if (state.aaActive && cfg->m_antiaimEnabled) {
-            ApplyAngle(pThis, state.aaFakeAngle);
+            CreateMoveHook::ApplyAngle(pThis, state.aaFakeAngle, true);
         }
     }
 
@@ -251,58 +270,95 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
         int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pThis + 0x0A74);
         int      idx  = ((seq % 150) + 150) % 150;
         uintptr_t pCmd = (uintptr_t)pThis + 0x0250 + (uintptr_t)idx * 0x88;
-        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x38);
+        uintptr_t pBaseCmd = CS2::Read<uintptr_t>(pCmd + 0x48); // corrected offset
         // The original call may rebuild or sanitize the command and overwrite
         // the pre-call angle. Apply the final aim after it returns.
         const CreateMoveState state = SnapshotState();
+        Vector3 finalAngles{};
+        bool aimSilent = false;
+        bool mustApplyAngles = false;
         if (state.rbHasTarget) {
-            ApplyAngle(pThis, state.rbAimAngle);
+            finalAngles = state.rbAimAngle;
+            aimSilent = cfg->m_ragebotSilentAimbot;
+            mustApplyAngles = true;
+        } else if (state.aaActive && cfg->m_antiaimEnabled) {
+            finalAngles = state.aaFakeAngle;
+            aimSilent = true;
+            mustApplyAngles = true;
+        }
+
+        // 1. Recoil Control System (RCS)
+        if (mustApplyAngles && (cfg->m_noRecoil || cfg->m_ragebotNoRecoil)) {
+            uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
+            if (punchSvc) {
+                Vector3 punch = CS2::Read<Vector3>(punchSvc + Offsets::Get("m_vecCsViewPunchAngle", 0x48));
+                if (std::isfinite(punch.x) && std::isfinite(punch.y)) {
+                    finalAngles.x -= punch.x * 2.0f;
+                    finalAngles.y -= punch.y * 2.0f;
+                }
+            }
+        }
+
+        // 2. Spread Compensation
+        if (mustApplyAngles && (cfg->m_noSpread || cfg->m_ragebotNoSpread) && NoSpread::IsReady()) {
+            finalAngles = NoSpread::CompensateSpread(finalAngles, lp, seq);
+        }
+
+        // Only rage/anti-aim own the command angles.  Re-writing angles on
+        // every tick was overwriting legitbot's visible, smoothed movement.
+        if (mustApplyAngles) {
+        // Normalize compensated angles
+        while (finalAngles.x > 89.f) finalAngles.x -= 180.f;
+        while (finalAngles.x < -89.f) finalAngles.x += 180.f;
+        while (finalAngles.y > 180.f) finalAngles.y -= 360.f;
+        while (finalAngles.y < -180.f) finalAngles.y += 360.f;
+        finalAngles.z = 0.f;
+
+        // Apply angles to input and cmd protobuf
+        CreateMoveHook::ApplyAngle(pThis, finalAngles, aimSilent);
+        }
+
+        if (state.rbHasTarget) {
             if (state.rbWantFire)
                 SetAttack(pThis, true);
             if (state.rbAutoStop && pBaseCmd > 0x100000) {
-                float zero = 0.f;
-                Memory::Write(pBaseCmd + 0x20, &zero, sizeof(zero)); // forward move
-                Memory::Write(pBaseCmd + 0x24, &zero, sizeof(zero)); // side move
+                Vector3 vel = CS2::Read<Vector3>(lp + Offsets::Get("m_vecVelocity", 0x430));
+                float speed = sqrtf(vel.x * vel.x + vel.y * vel.y);
+                if (speed > 10.f) {
+                    // Quick Stop: slide stop by applying exact opposite force to cancel velocity instantly!
+                    float vel_yaw = atan2f(vel.y, vel.x);
+                    float cmd_yaw_rad = finalAngles.y * 3.14159265f / 180.f;
+                    float diff_yaw = vel_yaw - cmd_yaw_rad;
+                    float fwd = -cosf(diff_yaw) * 450.f;
+                    float side = -sinf(diff_yaw) * 450.f;
+                    Memory::Write(pBaseCmd + 0x20, &fwd, sizeof(fwd));
+                    Memory::Write(pBaseCmd + 0x24, &side, sizeof(side));
+                } else {
+                    float zero = 0.f;
+                    Memory::Write(pBaseCmd + 0x20, &zero, sizeof(zero));
+                    Memory::Write(pBaseCmd + 0x24, &zero, sizeof(zero));
+                }
             }
-        } else if (state.aaActive && cfg->m_antiaimEnabled) {
-            ApplyAngle(pThis, state.aaFakeAngle);
+        } else if (!state.aaActive) {
+            Aimbot::Update(pThis);
+            Triggerbot::Update(pThis);
         }
 
-        // pCmd/pBaseCmd were captured before SetAttack, which may share the
-        // command storage at +0x38 on some builds.
-
-        // No-recoil: zero punch angle + velocity
-        if (cfg->m_ragebotNoRecoil) {
-            uintptr_t punchSvc = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pAimPunchServices", 0x14B8));
-            if (punchSvc) {
-                float z = 0.f;
-                for (uintptr_t off = 0x48; off <= 0x5C; off += 4)
-                    Memory::Write(punchSvc + off, &z, 4);
-            }
-        }
-
-        if (cfg->m_ragebotNoSpread) {
-            uintptr_t listAddr = Offsets::Get("dwEntityList");
-            uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
-            uintptr_t weapon = entityList ? CS2::GetActiveWeapon(entityList, lp) : 0;
-            if (weapon) {
-                float zero = 0.f;
-                Memory::Write(weapon + 0x17D0, &zero, sizeof(zero));
-            }
-        }
-
-        // Bhop
+        // Bhop — inject IN_JUMP through the command button field. The old
+        // dwForceJump global was removed from modern CS2, so drive the jump
+        // via the CUserCmd buttons instead: jump only while grounded and
+        // release in the air so each landing re-triggers automatically.
         if (cfg->m_bunnyhop && (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
-            uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F8));
-            if (flags & 1) { // on ground
-                uintptr_t fjAddr = Offsets::Get("dwForceJump");
-                if (fjAddr) { int v = 65537; Memory::Write(fjAddr, &v, 4); }
-            }
+            uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F4));
+            uint64_t buttons = CS2::Read<uint64_t>(pCmd + 0x38);
+            if (flags & 1) buttons |=  (1ULL << 1); // IN_JUMP on ground
+            else           buttons &= ~(1ULL << 1); // release while airborne
+            Memory::Write(pCmd + 0x38, &buttons, 8);
         }
 
         // Auto-strafe
         if (cfg->m_autoStrafe) {
-            uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F8));
+            uint32_t flags = CS2::Read<uint32_t>(lp + Offsets::Get("m_fFlags", 0x3F4));
             if (!(flags & 1)) { // in air
                 POINT cur; GetCursorPos(&cur);
                 static POINT last = cur;
@@ -345,10 +401,6 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             }
         }
 
-        // Clear fire flag for next tick if ragebot didn't request it again
-        if (!SnapshotState().rbWantFire)
-            SetAttack(pThis, false);
-
         // Third-person via CCSGOInput + 0x0A51 (Axion-confirmed)
         if (cfg->m_thirdPerson) {
             bool tp = true;
@@ -356,9 +408,9 @@ static void __fastcall hkCreateMove(void* pThis, int nSlot, float t, bool active
             uintptr_t obs = CS2::Read<uintptr_t>(lp + Offsets::Get("m_pObserverServices", 0x1220));
             if (obs) {
                 int mode = 1;
-                Memory::Write(obs + Offsets::Get("m_iObserverMode", 0x40), &mode, sizeof(mode));
+                Memory::Write(obs + Offsets::Get("m_iObserverMode", 0x48), &mode, sizeof(mode));
                 float distance = cfg->m_thirdPersonDist;
-                Memory::Write(obs + Offsets::Get("m_flObserverChaseDistance", 0x50), &distance, sizeof(distance));
+                Memory::Write(obs + Offsets::Get("m_flObserverChaseDistance", 0x58), &distance, sizeof(distance));
             }
         } else {
             bool fp = false;

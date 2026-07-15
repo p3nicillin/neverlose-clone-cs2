@@ -83,6 +83,7 @@ private:
     void RenderRadar();
     void RenderSpectatorList();
     void RenderGrenadePrediction();
+    void RenderIndicators();
 
     std::vector<HitMarker> m_hitMarkers;
 };

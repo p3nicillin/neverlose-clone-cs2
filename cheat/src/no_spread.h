@@ -56,6 +56,9 @@ public:
     // Returns the punch that was read (for post-original delta).
     static Vector3 ApplyRecoilCompensationPre(uintptr_t localPawn);
     static void    ApplyRecoilCompensationPost(uintptr_t localPawn, const Vector3& prePunch);
+    static bool    TraceLine(uintptr_t localPawn, uintptr_t targetPawn, const Vector3& start, const Vector3& end);
+    static float   GetTraceFraction(uintptr_t localPawn, uintptr_t targetPawn, const Vector3& start, const Vector3& end, Vector3* hitOffset = nullptr);
+    static Vector3 CompensateSpread(const Vector3& aimAngles, uintptr_t localPawn, int seq);
 
 private:
     // Pattern-scanned function pointers

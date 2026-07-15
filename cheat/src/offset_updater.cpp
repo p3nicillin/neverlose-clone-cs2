@@ -92,6 +92,7 @@ static bool ExtractInt(const std::string& json, const std::string& key, uintptr_
 static void ExtractAllInts(const std::string& json,
                             std::unordered_map<std::string, uintptr_t>& out) {
     size_t pos = 0;
+    std::string currentClass = "";
     while (pos < json.size()) {
         size_t q1 = json.find('"', pos);
         if (q1 == std::string::npos) break;
@@ -101,9 +102,23 @@ static void ExtractAllInts(const std::string& json,
         std::string key = json.substr(q1 + 1, q2 - q1 - 1);
         pos = q2 + 1;
 
-        // Skip whitespace and colon
+        // Skip whitespace and colon to check for class declarations
         size_t p2 = pos;
-        while (p2 < json.size() && (json[p2] == ' ' || json[p2] == ':' || json[p2] == '\t')) ++p2;
+        while (p2 < json.size() && (json[p2] == ' ' || json[p2] == '\t' || json[p2] == '\r' || json[p2] == '\n')) ++p2;
+        if (p2 < json.size() && json[p2] == ':') {
+            size_t p3 = p2 + 1;
+            while (p3 < json.size() && (json[p3] == ' ' || json[p3] == '\t' || json[p3] == '\r' || json[p3] == '\n')) ++p3;
+            if (p3 < json.size() && json[p3] == '{') {
+                // Class declaration start
+                currentClass = key;
+                pos = p3 + 1;
+                continue;
+            }
+        }
+
+        // Re-skip for fields
+        p2 = pos;
+        while (p2 < json.size() && (json[p2] == ' ' || json[p2] == ':' || json[p2] == '\t' || json[p2] == '\r' || json[p2] == '\n')) ++p2;
         if (p2 >= json.size()) break;
 
         if (isdigit((unsigned char)json[p2])) {
@@ -119,8 +134,16 @@ static void ExtractAllInts(const std::string& json,
             try {
                 uintptr_t val = (uintptr_t)std::stoull(
                     json.substr(numStart, p2 - numStart), nullptr, hex ? 16 : 10);
-                if (!key.empty() && key.front() != '/') // skip comments
-                    out[key] = val;
+                if (!key.empty() && key.front() != '/') { // skip comments
+                    bool allow = true;
+                    // Class-specific filters to prevent incorrect overrides
+                    if (key == "m_fFlags" && currentClass != "C_BaseEntity" && currentClass != "C_CSPlayerPawnBase" && currentClass != "C_CSPlayerPawn") allow = false;
+                    if (key == "m_AttributeManager" && currentClass != "C_EconEntity") allow = false;
+                    if (key == "m_vecVelocity" && currentClass != "C_BaseEntity" && currentClass != "C_CSPlayerPawnBase" && currentClass != "C_CSPlayerPawn") allow = false;
+                    
+                    if (allow)
+                        out[key] = val;
+                }
             } catch (...) {}
             pos = p2;
         }

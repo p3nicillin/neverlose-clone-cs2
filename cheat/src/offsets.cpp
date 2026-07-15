@@ -47,27 +47,32 @@ static const struct { const char* name; uintptr_t off; } k_StructOffsets[] = {
     { "m_hPlayerPawn",          0x914  },
     { "m_iszPlayerName",        0x6F4  },
     { "m_sSanitizedPlayerName", 0x868  },
-    { "m_iShotsFired",          0x15A4 },
+    { "m_iShotsFired",          0x1C84 },
     // Punch angle: two-level access confirmed from cs2-dumper client_dll.json
     // pawn + m_pAimPunchServices → CAimPunchServices ptr → + m_vecCsViewPunchAngle
     { "m_pAimPunchServices",    0x14B8 },
     { "m_vecCsViewPunchAngle",  0x48   },  // Vector3 within CAimPunchServices (72)
     { "m_bIsScoped",            0x1C70 },
     { "m_flFlashDuration",      0x1428 },
+    { "m_flFlashMaxAlpha",      0x1424 },
     { "m_iAccount",             0xDC4  },
     { "m_ArmorValue",           0xEB0  },
     { "m_hActiveWeapon",        0xCE0  },
-    { "m_iClip1",                   0x1774 },
-    { "m_AttributeManager",         0x370  },
+    { "m_iClip1",                   0x1700 },
+    { "m_AttributeManager",         0x11A8 },
+    { "m_nFallbackPaintKit",        0x1680 },
+    { "m_nFallbackSeed",            0x1684 },
+    { "m_iItemIDHigh",              0x464  },
+    { "m_flFallbackWear",           0x1688 },
     // Ragebot / anti-aim / third-person fallbacks (update via offsets.json/cs2-dumper)
     { "m_vecVelocity",              0x430  },
     { "m_fFlags",                   0x3F4  },
     { "m_pObserverServices",        0x1220 },
-    { "m_iObserverMode",            0x40   },  // within CPlayer_ObserverServices
-    { "m_flObserverChaseDistance",  0x50   },  // within CPlayer_ObserverServices
-    { "m_iCrosshairEntityHandle",   0x15A4 },  // crosshair entity handle
-    { "m_flLowerBodyYawTarget",     0x1408 },  // lower body yaw target
-    { "dwForceAttack2",             0x172A3D0 }, // force reload/alt fire
+    { "m_iObserverMode",            0x48   },
+    { "m_flObserverChaseDistance",  0x58   },
+    { "m_iCrosshairEntityHandle",   0x15A4 },
+    { "m_flLowerBodyYawTarget",     0x1408 },
+    { "dwForceAttack2",             0x172A3D0 },
 };
 
 // ---------------------------------------------------------------------------

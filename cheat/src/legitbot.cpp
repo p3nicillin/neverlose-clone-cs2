@@ -278,9 +278,9 @@ bool Legitbot::IsSniper() {
     if (!entityList) return false;
     uintptr_t weapon = CS2::GetActiveWeapon(entityList, localPawn);
     if (!weapon) return false;
-    int weaponID = CS2::Read<int>(weapon + 0x300);
-    // Sniper IDs: 11 (AWP), 12 (SSG08), 13 (SCAR-20), 14 (G3SG1)
-    return weaponID >= 11 && weaponID <= 14;
+    int weaponID = CS2::GetWeaponDefinitionIndex(weapon);
+    // Sniper IDs in CS2: AWP=9, G3SG1=11, SCAR-20=38, SSG08=40
+    return (weaponID == 9 || weaponID == 11 || weaponID == 38 || weaponID == 40);
 }
 
 // -----------------------------------------------------------------
@@ -290,8 +290,8 @@ bool Legitbot::IsScoped() {
     uintptr_t localPawnAddr = Offsets::Get("dwLocalPlayerPawn");
     uintptr_t localPawn = localPawnAddr ? CS2::Read<uintptr_t>(localPawnAddr) : 0;
     if (!localPawn) return false;
-    // m_bIsScoped at 0x1C50 (CS2 confirmed)
-    return CS2::Read<bool>(localPawn + 0x1C50);
+    // m_bIsScoped dynamic offset (fallback 0x1C70)
+    return CS2::Read<bool>(localPawn + Offsets::Get("m_bIsScoped", 0x1C70));
 }
 
 // -----------------------------------------------------------------

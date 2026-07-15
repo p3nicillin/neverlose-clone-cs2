@@ -3,8 +3,10 @@
 // =================================================================
 
 #include "aimbot.h"
+#include "create_move.h"
 #include "cheat_core.h"
 #include "config.h"
+#include "ui_manager.h"
 #include "offsets.h"
 #include "memory.h"
 #include "game_classes.h"
@@ -44,12 +46,13 @@ float Aimbot::CalcFov(const Vector3& va, const Vector3& aa) {
     return sqrtf(dp*dp + dy*dy);
 }
 
-void Aimbot::Update() {
+void Aimbot::Update(void* pInput) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_aimbotEnabled) return;
 
     int aimKey = cfg->m_aimbotKey ? cfg->m_aimbotKey : VK_LBUTTON;
     if (!(GetAsyncKeyState(aimKey) & 0x8000)) return;
+    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) return;
 
     uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
     uintptr_t listAddr      = Offsets::Get("dwEntityList");
@@ -65,7 +68,12 @@ void Aimbot::Update() {
 
     Vector3 origin  = CS2::GetAbsOrigin(localPawn);
     Vector3 eyePos  = { origin.x, origin.y, origin.z + 64.f };
-    Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
+    Vector3 viewAng;
+    if (pInput)
+        viewAng = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
+    else
+        viewAng = CS2::Read<Vector3>(viewAngAddr);
+
     int     myTeam  = CS2::GetTeam(localPawn);
 
     uintptr_t bestPawn = 0;
@@ -116,5 +124,8 @@ void Aimbot::Update() {
     newAng.z = 0.f;
     newAng   = NormAngles(newAng);
 
-    Memory::Write(viewAngAddr, &newAng, sizeof(newAng));
+    if (pInput)
+        CreateMoveHook::ApplyAngle(pInput, newAng, false);
+    else
+        Memory::Write(viewAngAddr, &newAng, sizeof(newAng));
 }

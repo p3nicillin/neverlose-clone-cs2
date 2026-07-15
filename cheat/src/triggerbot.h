@@ -1,5 +1,5 @@
 #pragma once
 class Triggerbot {
 public:
-    static void Update();
+    static void Update(void* pInput = nullptr);
 };

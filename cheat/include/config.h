@@ -35,6 +35,7 @@ public:
     bool m_ragebotBacktrack;
     float m_ragebotBacktrackTime;
     bool m_ragebotQuickScope;
+    bool m_ragebotSilentAimbot;
     bool m_ragebotVisualAimbot;
     bool m_ragebotLegMovement;
     bool m_ragebotMultipoint;

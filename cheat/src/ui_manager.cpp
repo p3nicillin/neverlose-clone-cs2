@@ -164,41 +164,71 @@ void UIManager::Render() {
 void UIManager::SetupStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
 
-    // Colors
-    style.Colors[ImGuiCol_WindowBg] = ImColor(18, 18, 22, 240);
-    style.Colors[ImGuiCol_TitleBg] = ImColor(35, 35, 42, 255);
-    style.Colors[ImGuiCol_TitleBgActive] = ImColor(55, 55, 65, 255);
-    style.Colors[ImGuiCol_Button] = ImColor(40, 40, 50, 255);
-    style.Colors[ImGuiCol_ButtonHovered] = ImColor(60, 60, 75, 255);
-    style.Colors[ImGuiCol_ButtonActive] = ImColor(80, 80, 100, 255);
-    style.Colors[ImGuiCol_CheckMark] = ImColor(0, 200, 255, 255);
-    style.Colors[ImGuiCol_SliderGrab] = ImColor(0, 200, 255, 255);
-    style.Colors[ImGuiCol_SliderGrabActive] = ImColor(50, 220, 255, 255);
-    style.Colors[ImGuiCol_FrameBg] = ImColor(30, 30, 38, 255);
-    style.Colors[ImGuiCol_FrameBgHovered] = ImColor(40, 40, 50, 255);
-    style.Colors[ImGuiCol_FrameBgActive] = ImColor(50, 50, 60, 255);
-    style.Colors[ImGuiCol_Tab] = ImColor(30, 30, 38, 255);
-    style.Colors[ImGuiCol_TabHovered] = ImColor(50, 50, 60, 255);
-    style.Colors[ImGuiCol_TabSelected] = ImColor(0, 200, 255, 255);
-    style.Colors[ImGuiCol_Header] = ImColor(0, 200, 255, 50);
-    style.Colors[ImGuiCol_HeaderHovered] = ImColor(0, 200, 255, 100);
-    style.Colors[ImGuiCol_HeaderActive] = ImColor(0, 200, 255, 150);
-    style.Colors[ImGuiCol_Separator] = ImColor(50, 50, 60, 255);
-    style.Colors[ImGuiCol_SeparatorHovered] = ImColor(0, 200, 255, 100);
-    style.Colors[ImGuiCol_SeparatorActive] = ImColor(0, 200, 255, 200);
+    // Rounding & Padding
+    style.WindowRounding    = 12.0f;
+    style.FrameRounding     = 6.0f;
+    style.GrabRounding      = 6.0f;
+    style.TabRounding       = 6.0f;
+    style.ScrollbarRounding = 8.0f;
+    style.ChildRounding     = 8.0f;
+    style.PopupRounding     = 8.0f;
 
-    // Rounding
-    style.WindowRounding = 8.0f;
-    style.FrameRounding = 4.0f;
-    style.GrabRounding = 4.0f;
-    style.TabRounding = 4.0f;
-    style.ScrollbarRounding = 4.0f;
-    style.ChildRounding = 6.0f;
+    style.WindowPadding     = ImVec2(16.f, 16.f);
+    style.FramePadding      = ImVec2(12.f, 6.f);
+    style.ItemSpacing       = ImVec2(10.f, 12.f);
+    style.ItemInnerSpacing  = ImVec2(8.f, 6.f);
 
-    // Sizes
-    style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize = 0.0f;
-    style.PopupBorderSize = 1.0f;
+    style.WindowBorderSize  = 1.0f;
+    style.FrameBorderSize   = 0.0f;
+    style.PopupBorderSize   = 1.0f;
+    style.ChildBorderSize   = 1.0f;
+
+    // Palette Colors (Deep dark backgrounds with electric blue/neon cyan accents)
+    ImVec4 activeBlue       = ImVec4(0.0f, 0.63f, 1.0f, 1.0f);       // #00A2FF
+    ImVec4 hoverBlue        = ImVec4(0.0f, 0.63f, 1.0f, 0.8f);
+    ImVec4 darkBg           = ImVec4(0.05f, 0.06f, 0.08f, 0.96f);    // #0d1014
+    ImVec4 childBg          = ImVec4(0.08f, 0.09f, 0.11f, 1.0f);     // #14171c
+    ImVec4 frameBg          = ImVec4(0.11f, 0.13f, 0.16f, 1.0f);     // #1c2129
+    ImVec4 border           = ImVec4(0.16f, 0.20f, 0.25f, 1.0f);     // #293340
+
+    style.Colors[ImGuiCol_Text]                  = ImVec4(0.92f, 0.94f, 0.96f, 1.0f);
+    style.Colors[ImGuiCol_TextDisabled]          = ImVec4(0.45f, 0.50f, 0.55f, 1.0f);
+    style.Colors[ImGuiCol_WindowBg]              = darkBg;
+    style.Colors[ImGuiCol_ChildBg]               = childBg;
+    style.Colors[ImGuiCol_PopupBg]               = childBg;
+    style.Colors[ImGuiCol_Border]                = border;
+    style.Colors[ImGuiCol_BorderShadow]          = ImVec4(0.f, 0.f, 0.f, 0.f);
+    style.Colors[ImGuiCol_FrameBg]               = frameBg;
+    style.Colors[ImGuiCol_FrameBgHovered]        = ImVec4(0.15f, 0.18f, 0.22f, 1.0f);
+    style.Colors[ImGuiCol_FrameBgActive]         = ImVec4(0.20f, 0.24f, 0.30f, 1.0f);
+    style.Colors[ImGuiCol_TitleBg]               = darkBg;
+    style.Colors[ImGuiCol_TitleBgActive]         = darkBg;
+    style.Colors[ImGuiCol_TitleBgCollapsed]      = darkBg;
+    style.Colors[ImGuiCol_MenuBarBg]             = childBg;
+    style.Colors[ImGuiCol_ScrollbarBg]           = darkBg;
+    style.Colors[ImGuiCol_ScrollbarGrab]         = frameBg;
+    style.Colors[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.18f, 0.22f, 0.28f, 1.0f);
+    style.Colors[ImGuiCol_ScrollbarGrabActive]   = activeBlue;
+    style.Colors[ImGuiCol_CheckMark]             = activeBlue;
+    style.Colors[ImGuiCol_SliderGrab]            = activeBlue;
+    style.Colors[ImGuiCol_SliderGrabActive]      = hoverBlue;
+    style.Colors[ImGuiCol_Button]                = frameBg;
+    style.Colors[ImGuiCol_ButtonHovered]         = ImVec4(0.16f, 0.45f, 0.75f, 0.6f);
+    style.Colors[ImGuiCol_ButtonActive]          = activeBlue;
+    style.Colors[ImGuiCol_Header]                = ImVec4(0.0f, 0.63f, 1.0f, 0.15f);
+    style.Colors[ImGuiCol_HeaderHovered]         = ImVec4(0.0f, 0.63f, 1.0f, 0.3f);
+    style.Colors[ImGuiCol_HeaderActive]          = ImVec4(0.0f, 0.63f, 1.0f, 0.5f);
+    style.Colors[ImGuiCol_Separator]             = border;
+    style.Colors[ImGuiCol_SeparatorHovered]      = activeBlue;
+    style.Colors[ImGuiCol_SeparatorActive]       = hoverBlue;
+    style.Colors[ImGuiCol_ResizeGrip]            = border;
+    style.Colors[ImGuiCol_ResizeGripHovered]     = hoverBlue;
+    style.Colors[ImGuiCol_ResizeGripActive]      = activeBlue;
+    style.Colors[ImGuiCol_Tab]                   = frameBg;
+    style.Colors[ImGuiCol_TabHovered]            = ImVec4(0.15f, 0.18f, 0.22f, 1.0f);
+    style.Colors[ImGuiCol_TabSelected]           = activeBlue;
+    style.Colors[ImGuiCol_TabDimmed]             = frameBg;
+    style.Colors[ImGuiCol_TabDimmedSelected]     = activeBlue;
 }
 
 // -----------------------------------------------------------------
@@ -228,44 +258,128 @@ void UIManager::HandleInput() {
 // Render menu
 // -----------------------------------------------------------------
 void UIManager::RenderMenu() {
-    ImGui::SetNextWindowSize(ImVec2(750, 500), ImGuiCond_Once);
+    ImGui::SetNextWindowSize(ImVec2(800, 520), ImGuiCond_Once);
     ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_Once);
+    
+    // Disable default titlebar border for a super sleek premium look
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.63f, 1.0f, 0.8f)); // Cyan glowing border
+    
     ImGui::Begin("Neverlose.cc v1.0", &m_menuOpen, ImGuiWindowFlags_NoCollapse);
 
-    // Tabs
-    if (ImGui::BeginTabBar("MainTabs")) {
-        if (ImGui::BeginTabItem("Ragebot")) {
-            RenderRagebotTab();
-            ImGui::EndTabItem();
+    // Dynamic Sizing & Font Scaling
+    ImVec2 windowSize = ImGui::GetWindowSize();
+    float scaleX = windowSize.x / 800.0f;
+    float scaleY = windowSize.y / 520.0f;
+    float scale = (scaleX < scaleY) ? scaleX : scaleY; // Use the minimum scale to preserve ratio
+    if (scale < 0.5f) scale = 0.5f;
+    if (scale > 2.5f) scale = 2.5f;
+
+    // Apply scale to styles dynamically
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 12.0f * scale;
+    style.FrameRounding = 6.0f * scale;
+    style.GrabRounding = 6.0f * scale;
+    style.TabRounding = 6.0f * scale;
+    style.ScrollbarRounding = 8.0f * scale;
+    style.ChildRounding = 8.0f * scale;
+    style.PopupRounding = 8.0f * scale;
+
+    style.WindowPadding = ImVec2(16.f * scale, 16.f * scale);
+    style.FramePadding = ImVec2(12.f * scale, 6.f * scale);
+    style.ItemSpacing = ImVec2(10.f * scale, 12.f * scale);
+    style.ItemInnerSpacing = ImVec2(8.f * scale, 6.f * scale);
+
+    // Scale current font via the recommended FontScaleMain style variable
+    style.FontScaleMain = scale;
+
+    // Track active tab locally
+    static int activeTab = 0;
+
+    // Left Column: Sidebar
+    ImGui::BeginChild("Sidebar", ImVec2(170.f * scale, 0.f), true);
+    
+    // Branding
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.0f, 0.63f, 1.0f, 1.0f), "  NEVERLOSE.CC");
+    ImGui::TextColored(ImVec4(0.45f, 0.50f, 0.55f, 1.0f), "   CS2 Premium");
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Tab drawing lambdas
+    auto drawTabButton = [scale](const char* name, int index, int& activeIndex) {
+        bool selected = (index == activeIndex);
+        if (selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.63f, 1.0f, 0.15f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.63f, 1.0f, 0.22f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.63f, 1.0f, 0.3f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.75f, 1.0f, 1.0f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.f, 0.f, 0.f, 0.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.15f, 0.18f, 0.22f, 0.25f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.18f, 0.22f, 0.45f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.88f, 0.92f, 1.0f));
         }
-        if (ImGui::BeginTabItem("Legit")) {
-            RenderLegitbotTab();
-            ImGui::EndTabItem();
+
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.12f, 0.5f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * scale);
+
+        if (ImGui::Button(name, ImVec2(ImGui::GetContentRegionAvail().x, 38.f * scale))) {
+            activeIndex = index;
         }
-        if (ImGui::BeginTabItem("Anti-Aim")) {
-            RenderAntiAimTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Visuals")) {
-            RenderVisualsTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Misc")) {
-            RenderMiscTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Config")) {
-            RenderConfigTab();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Lua")) {
-            RenderLuaTab();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(4);
+        ImGui::Spacing();
+    };
+
+    drawTabButton("Ragebot",   0, activeTab);
+    drawTabButton("Legitbot",   1, activeTab);
+    drawTabButton("Anti-Aim",   2, activeTab);
+    drawTabButton("Visuals",    3, activeTab);
+    drawTabButton("Misc",       4, activeTab);
+    drawTabButton("Config",     5, activeTab);
+    drawTabButton("Lua Engine", 6, activeTab);
+
+    // Sidebar bottom section: User Card
+    float availY = ImGui::GetContentRegionAvail().y;
+    if (availY > 60.f) {
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + availY - 60.f);
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.45f, 0.50f, 0.55f, 1.0f), "  User: p3nicillin");
+        ImGui::TextColored(ImVec4(0.0f, 0.75f, 0.35f, 1.0f), "  Sub: Lifetime");
     }
 
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    // Right Column: Tab Content
+    ImGui::BeginChild("ContentArea", ImVec2(0.f, 0.f), false);
+    
+    // Add header to content area
+    const char* tabHeaders[] = { "Rage Aimbot Core", "Legit Aimbot & Recoil Control", "Anti-Aim & Desync Controls", "Esp / Visual Settings", "Miscellaneous Utilities", "Configuration Files", "Lua Developer Workshop" };
+    ImGui::TextColored(ImVec4(0.0f, 0.63f, 1.0f, 1.0f), tabHeaders[activeTab]);
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    switch (activeTab) {
+        case 0: RenderRagebotTab(); break;
+        case 1: RenderLegitbotTab(); break;
+        case 2: RenderAntiAimTab(); break;
+        case 3: RenderVisualsTab(); break;
+        case 4: RenderMiscTab(); break;
+        case 5: RenderConfigTab(); break;
+        case 6: RenderLuaTab(); break;
+    }
+
+    ImGui::EndChild();
+
     ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 }
 
 // -----------------------------------------------------------------
@@ -297,6 +411,7 @@ void UIManager::RenderRagebotTab() {
 
     ImGui::BeginChild("RagebotRight", ImVec2(0, 0), true);
     ImGui::Checkbox("Quick Scope", &config->m_ragebotQuickScope);
+    ImGui::Checkbox("Silent Aimbot", &config->m_ragebotSilentAimbot);
     ImGui::Checkbox("Visual Aimbot", &config->m_ragebotVisualAimbot);
     ImGui::Checkbox("Leg Movement", &config->m_ragebotLegMovement);
     ImGui::Checkbox("Multipoint", &config->m_ragebotMultipoint);
