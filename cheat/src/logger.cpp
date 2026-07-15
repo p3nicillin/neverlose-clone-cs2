@@ -8,10 +8,12 @@
 #include <chrono>
 #include <ctime>
 #include <fstream>
+#include <mutex>
 
 static std::ofstream g_LogFile;
 static std::vector<std::string> g_LogBuffer;
 static bool g_Initialized = false;
+static std::mutex g_LogMutex;
 
 // Low-level write — no CRT dependency, no recursion risk
 static void WriteRaw(const char* msg) {
@@ -72,6 +74,7 @@ void Logger::Log(const std::string& message) {
         return;
     }
 
+    std::lock_guard<std::mutex> lock(g_LogMutex);
     std::string line = "[" + GetTimestamp() + "] " + message;
     printf("%s\n", line.c_str());
 
@@ -97,5 +100,11 @@ void Logger::Log(const char* format, ...) {
     Log(std::string(buf));
 }
 
-std::vector<std::string> Logger::GetLogs()  { return g_LogBuffer; }
-size_t                   Logger::GetLogCount() { return g_LogBuffer.size(); }
+std::vector<std::string> Logger::GetLogs()  {
+    std::lock_guard<std::mutex> lock(g_LogMutex);
+    return g_LogBuffer;
+}
+size_t Logger::GetLogCount() {
+    std::lock_guard<std::mutex> lock(g_LogMutex);
+    return g_LogBuffer.size();
+}

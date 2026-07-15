@@ -30,7 +30,8 @@ static const struct { const char* name; uintptr_t rva; } k_ClientRVAs[] = {
     { "dwEntityList",             0x254D060 },
     { "dwViewMatrix",             0x23B0B80 },
     { "dwViewAngles",             0x23C3D18 },
-    { "dwSensitivity",            0x23A66A8 },
+    { "dwCSGOInput",              0x23B95F0 },
+    { "dwSensitivity",            0x23A1228 },
     { "dwGameRules",              0x23A33F8 },
 };
 

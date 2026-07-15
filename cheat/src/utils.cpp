@@ -148,12 +148,13 @@ float Utils::Lerp(float a, float b, float t) {
 // Convert angle to vector
 // -----------------------------------------------------------------
 Vector3 Utils::AngleToVector(const Vector3& angles) {
-    float pitch = angles.x * (M_PI / 180.0f);
-    float yaw = angles.y * (M_PI / 180.0f);
+    constexpr float kDegToRad = 0.01745329251994329577f;
+    float pitch = angles.x * kDegToRad;
+    float yaw = angles.y * kDegToRad;
     return Vector3(
-        -cos(pitch) * -cos(yaw),
-        -sin(yaw) * cos(pitch),
-        sin(pitch)
+        cosf(pitch) * cosf(yaw),
+        -sinf(yaw) * cosf(pitch),
+        sinf(pitch)
     );
 }
 
@@ -161,10 +162,11 @@ Vector3 Utils::AngleToVector(const Vector3& angles) {
 // Convert vector to angle
 // -----------------------------------------------------------------
 Vector3 Utils::VectorToAngle(const Vector3& vec) {
+    constexpr float kRadToDeg = 57.295779513082320876f;
     Vector3 angles;
-    float hyp = sqrt(vec.x * vec.x + vec.y * vec.y);
-    angles.x = atan2(-vec.z, hyp) * (180.0f / M_PI);
-    angles.y = atan2(vec.y, vec.x) * (180.0f / M_PI);
+    float hyp = sqrtf(vec.x * vec.x + vec.y * vec.y);
+    angles.x = atan2f(-vec.z, hyp) * kRadToDeg;
+    angles.y = atan2f(vec.y, vec.x) * kRadToDeg;
     angles.z = 0.0f;
     return angles;
 }
@@ -245,12 +247,15 @@ uintptr_t Utils::GetModuleBase(DWORD pid, const std::string& moduleName) {
 // Pattern scan in memory
 // -----------------------------------------------------------------
 uintptr_t Utils::FindPattern(uintptr_t base, size_t size, const std::vector<PatternByte>& pattern) {
+    if (!base || pattern.empty() || pattern.size() > size) {
+        return 0;
+    }
     std::vector<uint8_t> buffer(size);
     if (!ReadProcessMemory(GetCurrentProcess(), (LPCVOID)base, buffer.data(), size, NULL)) {
         return 0;
     }
 
-    for (size_t i = 0; i < size - pattern.size(); i++) {
+    for (size_t i = 0; i <= size - pattern.size(); ++i) {
         bool found = true;
         for (size_t j = 0; j < pattern.size(); j++) {
             if (!pattern[j].wildcard && buffer[i + j] != pattern[j].byte) {
@@ -310,7 +315,15 @@ std::wstring Utils::ToWideString(const std::string& str) {
 // Convert wide string to string
 // -----------------------------------------------------------------
 std::string Utils::ToString(const std::wstring& wstr) {
-    return std::string(wstr.begin(), wstr.end());
+    if (wstr.empty()) return {};
+    int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wstr.data(),
+                                    static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
+    if (bytes <= 0) return {};
+    std::string result(static_cast<size_t>(bytes), '\0');
+    if (!WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wstr.data(),
+                             static_cast<int>(wstr.size()), result.data(), bytes, nullptr, nullptr))
+        return {};
+    return result;
 }
 
 // -----------------------------------------------------------------

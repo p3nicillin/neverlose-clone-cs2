@@ -137,15 +137,18 @@ void CheatCore::Update() {
     // Fire Lua setup_command event
     m_lua->FireEvent("setup_command");
 
-    // Run ragebot
-    m_ragebot->Run(nullptr);
-
-    // Run anti-aim
-    bool sendPacket = true;
-    m_antiaim->Apply(nullptr, sendPacket);
-
-    // Run legitbot
-    m_legitbot->Run(nullptr);
+    // Only one feature family may own view angles and command buttons at a
+    // time.  Rage/anti-aim stay enabled in many existing configs, so merely
+    // enabling Legit previously let those writers silently overwrite it.
+    const bool legitMode = m_config->m_aimbotEnabled || m_config->m_triggerbotEnabled;
+    if (legitMode) {
+        CreateMoveHook::ClearRagebotAim();
+        CreateMoveHook::ClearAntiAim();
+    } else {
+        m_ragebot->Run(nullptr);
+        bool sendPacket = true;
+        m_antiaim->Apply(nullptr, sendPacket);
+    }
 
     // Update misc features (bhop, no recoil, no flash)
     m_misc->Update();
@@ -183,6 +186,12 @@ void CheatCore::Shutdown() {
     Logger::Log("Shutting down cheat core...");
 
     m_running = false;
+
+    // Stop callbacks before disposing objects that those callbacks access.
+    // This makes an explicit unload deterministic instead of leaving Present
+    // or CreateMove pointed at an object graph that is being destroyed.
+    CreateMoveHook::Uninstall();
+    DX11Hook::Uninstall();
 
     // Shutdown subsystems
     if (m_hooks) {
