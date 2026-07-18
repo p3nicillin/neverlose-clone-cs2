@@ -74,7 +74,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
     NTSTATUS status;
     UNREFERENCED_PARAMETER(RegistryPath);
 
-    DbgPrint("[Neverlose] Driver loading...\n");
+    DbgPrint("[Horizon] Driver loading...\n");
 
     // Allocate context
     g_Context = (PVAC_BYPASS_CONTEXT)ExAllocatePoolWithTag(NonPagedPool, sizeof(VAC_BYPASS_CONTEXT), POOL_TAG);
@@ -85,23 +85,23 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 
     // Create device object for user-mode communication
     UNICODE_STRING deviceName;
-    RtlInitUnicodeString(&deviceName, NEVERLOSE_DEVICE_NAME);
+    RtlInitUnicodeString(&deviceName, HORIZON_DEVICE_NAME);
     PDEVICE_OBJECT deviceObject = NULL;
     status = IoCreateDevice(DriverObject, 0, &deviceName,
-                            NEVERLOSE_DEVICE_TYPE, FILE_DEVICE_SECURE_OPEN,
+                            HORIZON_DEVICE_TYPE, FILE_DEVICE_SECURE_OPEN,
                             FALSE, &deviceObject);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] IoCreateDevice failed: 0x%08X\n", status);
+        DbgPrint("[Horizon] IoCreateDevice failed: 0x%08X\n", status);
         ExFreePoolWithTag(g_Context, POOL_TAG);
         return status;
     }
 
-    // Create symbolic link so user-mode can open \\.\NeverloseDrv
+    // Create symbolic link so user-mode can open \\.\HorizonDrv
     UNICODE_STRING symLink;
-    RtlInitUnicodeString(&symLink, NEVERLOSE_SYMLINK);
+    RtlInitUnicodeString(&symLink, HORIZON_SYMLINK);
     status = IoCreateSymbolicLink(&symLink, &deviceName);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] IoCreateSymbolicLink failed: 0x%08X\n", status);
+        DbgPrint("[Horizon] IoCreateSymbolicLink failed: 0x%08X\n", status);
         IoDeleteDevice(deviceObject);
         ExFreePoolWithTag(g_Context, POOL_TAG);
         return status;
@@ -120,7 +120,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
     Memory_Initialize();
     HideRegions_Initialize();
 
-    DbgPrint("[Neverlose] Driver loaded, device ready\n");
+    DbgPrint("[Horizon] Driver loaded, device ready\n");
     return STATUS_SUCCESS;
 }
 
@@ -128,11 +128,11 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) 
 // Driver unload routine
 // -----------------------------------------------------------------
 void DriverUnload(PDRIVER_OBJECT DriverObject) {
-    DbgPrint("[Neverlose] Driver unloading...\n");
+    DbgPrint("[Horizon] Driver unloading...\n");
 
     // Remove symbolic link and device
     UNICODE_STRING symLink;
-    RtlInitUnicodeString(&symLink, NEVERLOSE_SYMLINK);
+    RtlInitUnicodeString(&symLink, HORIZON_SYMLINK);
     IoDeleteSymbolicLink(&symLink);
 
     if (DriverObject->DeviceObject) {
@@ -146,5 +146,5 @@ void DriverUnload(PDRIVER_OBJECT DriverObject) {
         g_Context = NULL;
     }
 
-    DbgPrint("[Neverlose] Driver unloaded\n");
+    DbgPrint("[Horizon] Driver unloaded\n");
 }

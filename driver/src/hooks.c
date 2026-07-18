@@ -26,7 +26,7 @@ NTSTATUS InstallHooks() {
         g_Context->OriginalNtQueryVirtualMemory = ntQueryVirtualMemory;
         status = InstallInlineHook((PVOID)ntQueryVirtualMemory, (PVOID)HookedNtQueryVirtualMemory);
         if (!NT_SUCCESS(status)) {
-            DbgPrint("[Neverlose] Failed to hook NtQueryVirtualMemory\n");
+            DbgPrint("[Horizon] Failed to hook NtQueryVirtualMemory\n");
         }
     }
 
@@ -36,7 +36,7 @@ NTSTATUS InstallHooks() {
         g_Context->OriginalNtReadVirtualMemory = ntReadVirtualMemory;
         status = InstallInlineHook((PVOID)ntReadVirtualMemory, (PVOID)HookedNtReadVirtualMemory);
         if (!NT_SUCCESS(status)) {
-            DbgPrint("[Neverlose] Failed to hook NtReadVirtualMemory\n");
+            DbgPrint("[Horizon] Failed to hook NtReadVirtualMemory\n");
         }
     }
 
@@ -46,7 +46,7 @@ NTSTATUS InstallHooks() {
         g_Context->OriginalNtWriteVirtualMemory = ntWriteVirtualMemory;
         status = InstallInlineHook((PVOID)ntWriteVirtualMemory, (PVOID)HookedNtWriteVirtualMemory);
         if (!NT_SUCCESS(status)) {
-            DbgPrint("[Neverlose] Failed to hook NtWriteVirtualMemory\n");
+            DbgPrint("[Horizon] Failed to hook NtWriteVirtualMemory\n");
         }
     }
 
@@ -56,7 +56,7 @@ NTSTATUS InstallHooks() {
         g_Context->OriginalNtQueryInformationProcess = ntQueryInformationProcess;
         status = InstallInlineHook((PVOID)ntQueryInformationProcess, (PVOID)HookedNtQueryInformationProcess);
         if (!NT_SUCCESS(status)) {
-            DbgPrint("[Neverlose] Failed to hook NtQueryInformationProcess\n");
+            DbgPrint("[Horizon] Failed to hook NtQueryInformationProcess\n");
         }
     }
 
@@ -81,7 +81,7 @@ void RemoveHooks() {
         RestoreInlineHook((PVOID)g_Context->OriginalNtQueryInformationProcess);
     }
 
-    DbgPrint("[Neverlose] Hooks removed\n");
+    DbgPrint("[Horizon] Hooks removed\n");
 }
 
 // -----------------------------------------------------------------

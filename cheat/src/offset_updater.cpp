@@ -21,7 +21,7 @@
 static std::string HttpGet(const wchar_t* host, const wchar_t* path) {
     std::string result;
 
-    HINTERNET hSess = WinHttpOpen(L"NeverloseUpdater/1.0",
+    HINTERNET hSess = WinHttpOpen(L"HorizonUpdater/1.0",
                                    WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                    WINHTTP_NO_PROXY_NAME,
                                    WINHTTP_NO_PROXY_BYPASS, 0);

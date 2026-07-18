@@ -89,7 +89,7 @@ NTSTATUS PatchVACModules() {
             // Patch with NOPs or RET
             UCHAR patch[10] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0xC3, 0x00, 0x00, 0x00, 0x00 };
             WriteProcessMemory(pid, (PVOID)patternAddr, patch, 6);
-            DbgPrint("[Neverlose] Patched VAC module %ws at 0x%p\n", patterns[i].processName, patternAddr);
+            DbgPrint("[Horizon] Patched VAC module %ws at 0x%p\n", patterns[i].processName, patternAddr);
         }
     }
 
@@ -102,7 +102,7 @@ NTSTATUS PatchVACModules() {
             ULONG_PTR vacInit = cs2Base + 0x10000;
             UCHAR patch[] = { 0x31, 0xC0, 0xC3 }; // XOR EAX, EAX; RET
             WriteProcessMemory(cs2Pid, (PVOID)vacInit, patch, sizeof(patch));
-            DbgPrint("[Neverlose] Patched CS2 VAC initialization\n");
+            DbgPrint("[Horizon] Patched CS2 VAC initialization\n");
         }
     }
 
@@ -120,7 +120,7 @@ NTSTATUS BlockVACThreads() {
     // Suspend threads that are VAC-related
     // (Implementation uses ZwQuerySystemInformation)
 
-    DbgPrint("[Neverlose] Blocked VAC threads\n");
+    DbgPrint("[Horizon] Blocked VAC threads\n");
     return STATUS_SUCCESS;
 }
 
@@ -143,7 +143,7 @@ NTSTATUS DisableVACService() {
         RtlInitUnicodeString(&valueName, L"Start");
         ZwSetValueKey(hKey, &valueName, 0, REG_DWORD, &start, sizeof(start));
         ZwClose(hKey);
-        DbgPrint("[Neverlose] Disabled VAC service\n");
+        DbgPrint("[Horizon] Disabled VAC service\n");
     }
 
     // Terminate VAC process
@@ -161,7 +161,7 @@ NTSTATUS DisableVACService() {
         if (NT_SUCCESS(status)) {
             ZwTerminateProcess(hProcess, 0);
             ZwClose(hProcess);
-            DbgPrint("[Neverlose] Terminated vac.exe\n");
+            DbgPrint("[Horizon] Terminated vac.exe\n");
         }
     }
 

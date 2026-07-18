@@ -213,15 +213,16 @@ bool Legitbot::IsCrosshairOnEnemy() {
     uintptr_t entityList = listAddr ? CS2::Read<uintptr_t>(listAddr) : 0;
     if (!entityList) return false;
 
-    int localTeam = CS2::GetTeam(localCtrl);
+    int localTeam = CS2::GetTeam(localPawn);
 
-    // Try multiple known offsets for m_iCrosshairEntityIndex / m_iCrosshairEntityHandle
-    int crosshairIdx = CS2::Read<int>(localPawn + 0x15A4);
+    // Try multiple known offsets for m_iCrosshairEntityIndex / m_iCrosshairEntityHandle / m_iIDEntIndex
+    uintptr_t crosshairOff = Offsets::Get("m_iIDEntIndex", 0x341C);
+    int crosshairIdx = CS2::Read<int>(localPawn + crosshairOff);
     if (crosshairIdx <= 0 || crosshairIdx > 2048) {
-        crosshairIdx = CS2::Read<int>(localPawn + 0x15F4);
+        crosshairIdx = CS2::Read<int>(localPawn + Offsets::Get("m_iCrosshairEntityHandle", 0x341C));
     }
     if (crosshairIdx <= 0 || crosshairIdx > 2048) {
-        crosshairIdx = CS2::Read<int>(localPawn + 0x152C);
+        crosshairIdx = CS2::Read<int>(localPawn + 0x15A4);
     }
 
     if (crosshairIdx > 0 && crosshairIdx <= 2048) {
@@ -237,9 +238,9 @@ bool Legitbot::IsCrosshairOnEnemy() {
 
         if (targetPawn) {
             // In CS2, crosshair entity handle returns the player pawn.
-            int hp = CS2::Read<int>(targetPawn + 0x33C); // m_iHealth
+            int hp = CS2::Read<int>(targetPawn + Offsets::Get("m_iHealth", 0x33C)); // m_iHealth
             if (hp > 0 && hp <= 100) {
-                int team = CS2::Read<int>(targetPawn + 0x3CB); // m_iTeamNum on pawn
+                int team = CS2::Read<int>(targetPawn + Offsets::Get("m_iTeamNum", 0x3CB)); // m_iTeamNum on pawn
                 if (team != localTeam && (team == 2 || team == 3)) {
                     return true;
                 }
@@ -261,7 +262,7 @@ bool Legitbot::IsPistol() {
     if (!entityList) return false;
     uintptr_t weapon = CS2::GetActiveWeapon(entityList, localPawn);
     if (!weapon) return false;
-    int weaponID = CS2::Read<int>(weapon + 0x300); // approximate weapon ID offset
+    int weaponID = CS2::GetWeaponDefinitionIndex(weapon);
     // Pistol IDs: 1-9 (Deagle, Dualies, Five-SeveN, Glock, P2000, USP, P250, Tec-9, CZ-75)
     return weaponID >= 1 && weaponID <= 9;
 }

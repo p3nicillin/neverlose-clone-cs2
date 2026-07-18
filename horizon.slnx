@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="cheat/horizon_cheat/horizon_cheat.vcxproj" Id="86be7c3a-d840-4d4b-af99-9a609a5978fd" />
+  <Project Path="driver/horizon_driver/horizon_driver.vcxproj" />
+  <Project Path="loader/horizon_loader/horizon_loader.vcxproj" Id="6914bd67-a196-4a14-bb21-b4962d1636d9" />
+</Solution>

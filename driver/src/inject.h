@@ -6,13 +6,13 @@
 #include <windows.h>
 #endif
 
-#define NEVERLOSE_DEVICE_TYPE  0x8000
-#define NEVERLOSE_DEVICE_NAME  L"\\Device\\NeverloseDrv"
-#define NEVERLOSE_SYMLINK      L"\\DosDevices\\NeverloseDrv"
-#define NEVERLOSE_WIN32_NAME   L"\\\\.\\NeverloseDrv"
+#define HORIZON_DEVICE_TYPE  0x8000
+#define HORIZON_DEVICE_NAME  L"\\Device\\HorizonDrv"
+#define HORIZON_SYMLINK      L"\\DosDevices\\HorizonDrv"
+#define HORIZON_WIN32_NAME   L"\\\\.\\HorizonDrv"
 
 #define IOCTL_INJECT_DLL \
-    CTL_CODE(NEVERLOSE_DEVICE_TYPE, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+    CTL_CODE(HORIZON_DEVICE_TYPE, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 #pragma pack(push, 1)
 typedef struct _INJECT_REQUEST {

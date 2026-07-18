@@ -15,6 +15,7 @@ public:
     static void Set(const std::string& name, uintptr_t val);
     static bool HasOffset(const std::string& name);
     static void Update();
+    static bool IsFetched();
     static std::string DumpAll();
 
 private:

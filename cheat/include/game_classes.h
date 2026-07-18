@@ -97,11 +97,35 @@ inline int GetWeaponDefinitionIndex(uintptr_t weapon) {
 // Skeleton/bone helpers
 // pawn → m_pGameSceneNode(0x328) → m_modelState(+0x140) → bone array ptr (+0x80)
 // Bone stride: 32 bytes each (Vector3 position + 20 bytes padding/quat)
+// C_CSPlayerPawn::m_entitySpottedState (0x1C58). Inside CEntitySpottedState:
+//   m_bSpotted (0x8, bool) | m_bSpottedByMask (0xC, uint32[2] indexed by slot)
+static constexpr uintptr_t kSpottedState = 0x1C58;
+
+// Team-wide spotted flag (true if ANY teammate sees the enemy). Lingers briefly.
+inline bool IsSpotted(uintptr_t pawn) {
+    if (!pawn) return false;
+    return Read<bool>(pawn + kSpottedState + 0x8);
+}
+
+// "Spotted by ME" — checks only the local player's bit in m_bSpottedByMask, so a
+// teammate seeing the enemy through your wall no longer counts as visible. The
+// local slot comes from the pawn's controller handle (m_hController @ 0x13D0).
+inline bool IsVisibleToLocal(uintptr_t pawn, uintptr_t localPawn) {
+    if (!pawn || !localPawn) return false;
+    uint32_t ctrlHandle = Read<uint32_t>(localPawn + 0x13D0); // m_hController
+    int slot = (int)(ctrlHandle & 0x7FFF) - 1;                 // entity index -> slot
+    if (slot < 0 || slot > 63) return IsSpotted(pawn);         // fallback
+    uintptr_t maskAddr = pawn + kSpottedState + 0xC;           // m_bSpottedByMask
+    uint32_t mask = Read<uint32_t>(maskAddr + (slot >= 32 ? 4 : 0));
+    return (mask >> (slot & 31)) & 1u;
+}
+
 inline uintptr_t GetBoneArray(uintptr_t pawn) {
-    // Use same offset as GetAbsOrigin for consistency
-    uintptr_t node = Read<uintptr_t>(pawn + Offsets::Get("m_pGameSceneNode", 0x328));
+    uintptr_t node = Read<uintptr_t>(pawn + Offsets::Get("m_pGameSceneNode", 0x330));
     if (!node) return 0;
-    uintptr_t modelState = node + 0x140;
+    // CSkeletonInstance::m_modelState = 0x150 on the LIVE build (cs2-sdk.com;
+    // a2x/cs2-dumper's 0x140 is a different build). Bone array ptr at +0x80.
+    uintptr_t modelState = node + Offsets::Get("m_modelState", 0x150);
     return Read<uintptr_t>(modelState + 0x80);
 }
 inline Vector3 GetBonePos(uintptr_t boneArr, int boneIdx) {

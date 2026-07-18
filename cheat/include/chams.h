@@ -22,6 +22,7 @@ namespace Chams {
 
     // Model stride identification — called from DrawIndexed hook
     bool IsPlayerModel(UINT stride, UINT indexCount);
+    bool IsWeaponModel(UINT stride, UINT indexCount);
 
     // Set the flat-color shader and draw with chams overrides.
     // origFn is the saved original DrawIndexed function pointer.

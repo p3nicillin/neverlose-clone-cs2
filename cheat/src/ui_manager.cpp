@@ -123,12 +123,12 @@ void UIManager::Render() {
         g_Cheat->GetVisuals()->Render();
     }
 
-    // Premium Neverlose.cc Watermark
+    // Premium Horizon.cc Watermark
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     if (g_Cheat && g_Cheat->GetConfig() && g_Cheat->GetConfig()->m_visualsEnabled) {
         char watermark[128];
         int fps = (int)ImGui::GetIO().Framerate;
-        sprintf_s(watermark, "neverlose.cc | CS2 | FPS: %d | premium", fps);
+        sprintf_s(watermark, "horizon.cc | CS2 | FPS: %d | premium", fps);
         ImVec2 textSz = ImGui::GetFont()->CalcTextSizeA(13.f, FLT_MAX, 0.f, watermark);
         float wWidth = textSz.x + 20.f;
         float wHeight = 24.f;
@@ -266,7 +266,7 @@ void UIManager::RenderMenu() {
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.63f, 1.0f, 0.8f)); // Cyan glowing border
     
     // Enable resizing
-    ImGui::Begin("Neverlose.cc v1.0", &m_menuOpen, ImGuiWindowFlags_NoCollapse);
+    ImGui::Begin("Horizon.cc v1.0", &m_menuOpen, ImGuiWindowFlags_NoCollapse);
 
     // Compute dynamic scaling based on current window size relative to default 800x520
     ImVec2 wSize = ImGui::GetWindowSize();
@@ -283,7 +283,7 @@ void UIManager::RenderMenu() {
     
     // Branding
     ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.0f, 0.63f, 1.0f, 1.0f), "  NEVERLOSE.CC");
+    ImGui::TextColored(ImVec4(0.0f, 0.63f, 1.0f, 1.0f), "  HORIZON.CC");
     ImGui::TextColored(ImVec4(0.45f, 0.50f, 0.55f, 1.0f), "   CS2 Premium");
     ImGui::Spacing();
     ImGui::Separator();
@@ -377,6 +377,7 @@ void UIManager::RenderRagebotTab() {
     ImGui::Spacing();
 
     ImGui::BeginChild("RagebotLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.50f);
     ImGui::Checkbox("Ragebot Enabled", &config->m_ragebotEnabled);
     ImGui::SliderFloat("FOV", &config->m_ragebotFOV, 0.0f, 180.0f, "%.0f deg");
     // Rage aim is intentionally instant; smoothing belongs to legitbot.
@@ -388,14 +389,17 @@ void UIManager::RenderRagebotTab() {
     ImGui::Checkbox("Extrapolation", &config->m_ragebotExtrapolation);
     ImGui::Checkbox("Backtrack", &config->m_ragebotBacktrack);
     ImGui::SliderFloat("Backtrack Time", &config->m_ragebotBacktrackTime, 0.0f, 0.5f, "%.2f s");
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("RagebotRight", ImVec2(0, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.50f);
     ImGui::Checkbox("Quick Scope", &config->m_ragebotQuickScope);
     ImGui::Checkbox("Silent Aimbot", &config->m_ragebotSilentAimbot);
     ImGui::Checkbox("Visual Aimbot", &config->m_ragebotVisualAimbot);
+    ImGui::Checkbox("Visible only", &config->m_ragebotVisibleCheck);
     ImGui::Checkbox("Leg Movement", &config->m_ragebotLegMovement);
     ImGui::Checkbox("Multipoint", &config->m_ragebotMultipoint);
     ImGui::SliderFloat("Multipoint Scale", &config->m_ragebotMultipointScale, 0.0f, 1.0f);
@@ -405,6 +409,7 @@ void UIManager::RenderRagebotTab() {
     ImGui::Text("Rage weapon control");
     ImGui::Checkbox("No Recoil", &config->m_ragebotNoRecoil);
     ImGui::Checkbox("No Spread", &config->m_ragebotNoSpread);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 }
 
@@ -415,18 +420,27 @@ void UIManager::RenderLegitbotTab() {
     Config* config = g_Cheat->GetConfig();
 
     ImGui::BeginChild("LegitLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
-    ImGui::Text("Triggerbot");
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+    ImGui::Text("Legitbot Compiled Module");
     ImGui::Separator();
-    ImGui::Checkbox("Enabled##trig",  &config->m_triggerbotEnabled);
-    ImGui::SliderFloat("FOV##trig",   &config->m_triggerbotFov,   0.5f, 10.f, "%.1f deg");
-    ImGui::SliderInt("Delay (ms)",    &config->m_triggerbotDelay, 0,    200);
+    ImGui::Checkbox("Enable Module", &config->m_legitbotEnabled);
+    ImGui::Checkbox("Bunny Hop##lb", &config->m_legitbotBunnyHop);
+    ImGui::Checkbox("Edge Jump##lb", &config->m_legitbotEdgeJump);
+    // Triggerbot lives solely under "Standalone Triggerbot" (right pane) to
+    // avoid two competing triggerbots; the legitbot copy was removed.
+    ImGui::Checkbox("Auto Pistol##lb", &config->m_legitbotAutoPistol);
+    ImGui::Checkbox("Auto Scope##lb", &config->m_legitbotAutoScope);
+    ImGui::Checkbox("Quick Stop##lb", &config->m_legitbotQuickStop);
+    ImGui::SliderFloat("Quick Stop Speed##lb", &config->m_legitbotQuickStopSpeed, 0.f, 100.f, "%.0f%%");
     ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1), "Auto-fires when crosshair on enemy");
+    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.f), "Bhop Key: Space | Triggerbot Key: Mouse Left");
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("LegitRight", ImVec2(0, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Text("Legit Aimbot");
     ImGui::Separator();
     ImGui::Checkbox("Enabled##la",   &config->m_aimbotEnabled);
@@ -434,8 +448,21 @@ void UIManager::RenderLegitbotTab() {
     ImGui::SliderFloat("Smooth##la", &config->m_aimbotSmooth, 2.f,  20.f, "%.1f");
     ImGui::SliderFloat("RCS##la", &config->m_legitbotRcs, 0.f, 100.f, "%.0f%%");
     ImGui::Checkbox("No teamkill##la", &config->m_aimbotTeamcheck);
+    ImGui::Checkbox("Visible only##la", &config->m_aimbotVisibleCheck);
     ImGui::Spacing();
     ImGui::TextColored(ImVec4(1,1,0,1), "Hold LMB to activate");
+    
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::Text("Standalone Triggerbot");
+    ImGui::Separator();
+    ImGui::Checkbox("Enabled##trig",  &config->m_triggerbotEnabled);
+    ImGui::SliderFloat("FOV##trig",   &config->m_triggerbotFov,   0.5f, 10.f, "%.1f deg");
+    ImGui::SliderInt("Delay (ms)##trig", &config->m_triggerbotDelay, 0, 200);
+    ImGui::Checkbox("Visible only##trig", &config->m_triggerbotVisibleCheck);
+    ImGui::Spacing();
+    ImGui::TextColored(ImVec4(0.5f,1,0.5f,1), "Auto-fires when crosshair on enemy");
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 }
 
@@ -449,6 +476,7 @@ void UIManager::RenderAntiAimTab() {
     ImGui::Separator();
 
     ImGui::BeginChild("AntiAimLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.50f);
     ImGui::Checkbox("Anti-Aim Enabled", &config->m_antiaimEnabled);
     ImGui::Combo("Yaw Mode", &config->m_antiaimMode,
         "Backward\0Jitter\0Spin\0Sideways\0Desync\0Jitter 3-Way\0Custom\0");
@@ -463,11 +491,13 @@ void UIManager::RenderAntiAimTab() {
     ImGui::Checkbox("Invert on Shot", &config->m_antiaimInvertOnShot);
     ImGui::Checkbox("Fake Lag", &config->m_antiaimFakeLag);
     ImGui::SliderFloat("Fake Lag Amount", &config->m_antiaimFakeLagAmount, 0.0f, 20.0f);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("AntiAimRight", ImVec2(0, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.50f);
     ImGui::Checkbox("Choke Packets", &config->m_antiaimChokePackets);
     ImGui::SliderInt("Choke Percentage", &config->m_antiaimChokePercent, 0, 100);
     ImGui::Checkbox("LBY Manipulation", &config->m_antiaimLBY);
@@ -480,6 +510,7 @@ void UIManager::RenderAntiAimTab() {
     ImGui::Spacing();
     ImGui::TextColored(ImVec4(1,0.8f,0,1), "Note: true desync / packet choke need");
     ImGui::TextColored(ImVec4(1,0.8f,0,1), "the user cmd; visible yaw is applied now.");
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 }
 
@@ -490,6 +521,7 @@ void UIManager::RenderVisualsTab() {
     Config* config = g_Cheat->GetConfig();
 
     ImGui::BeginChild("VisualsLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Checkbox("Visuals Enabled", &config->m_visualsEnabled);
     ImGui::Separator();
     ImGui::Checkbox("ESP Enabled", &config->m_espEnabled);
@@ -499,11 +531,13 @@ void UIManager::RenderVisualsTab() {
     ImGui::Checkbox("Name", &config->m_espName);
     ImGui::Checkbox("Weapon", &config->m_espWeapon);
     ImGui::Checkbox("Flags", &config->m_espFlags);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("VisualsCenter", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Checkbox("Skeleton", &config->m_espSkeleton);
     ImGui::Checkbox("Snaplines", &config->m_espSnaplines);
     ImGui::Checkbox("Distance", &config->m_espDistance);
@@ -515,11 +549,13 @@ void UIManager::RenderVisualsTab() {
     ImGui::Checkbox("Chams Enabled", &config->m_chamsEnabled);
     ImGui::Checkbox("Visible Chams", &config->m_chamsVisible);
     ImGui::ColorEdit3("Visible Color", (float*)&config->m_chamsVisibleColor);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("VisualsRight", ImVec2(0, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Checkbox("Hidden Chams", &config->m_chamsHidden);
     ImGui::ColorEdit3("Hidden Color", (float*)&config->m_chamsHiddenColor);
     ImGui::Checkbox("Weapon Chams", &config->m_chamsWeapon);
@@ -533,6 +569,7 @@ void UIManager::RenderVisualsTab() {
     ImGui::Checkbox("Hit Marker", &config->m_hitMarker);
     ImGui::SliderFloat("Hit Marker Time", &config->m_hitMarkerTime, 0.0f, 2.0f);
     ImGui::Checkbox("Grenade Prediction", &config->m_grenadePrediction);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 }
 
@@ -544,6 +581,7 @@ void UIManager::RenderMiscTab() {
 
     // Misc features in columns
     ImGui::BeginChild("MiscLeft", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Text("Movement");
     ImGui::Separator();
     ImGui::Checkbox("Bunny Hop",   &config->m_bunnyhop);
@@ -563,11 +601,13 @@ void UIManager::RenderMiscTab() {
     ImGui::Checkbox("Skin Changer", &config->m_skinChanger);
     ImGui::Checkbox("Rank Revealer", &config->m_rankRevealer);
     ImGui::Checkbox("Damage Reports", &config->m_damageReport);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("MiscCenter", ImVec2(ImGui::GetContentRegionAvail().x * 0.333f, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Checkbox("HUD Removal", &config->m_hudRemoval);
     ImGui::Checkbox("Skybox Removal", &config->m_skyboxRemoval);
     ImGui::Checkbox("Shadow Removal", &config->m_shadowRemoval);
@@ -576,17 +616,20 @@ void UIManager::RenderMiscTab() {
     ImGui::Checkbox("Smoke Removal", &config->m_smokeRemoval);
     ImGui::Checkbox("Flash Reduction", &config->m_flashReduction);
     ImGui::SliderFloat("Flash Amount", &config->m_flashAmount, 0.0f, 100.0f);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 
     ImGui::SameLine();
 
     ImGui::BeginChild("MiscRight", ImVec2(0, 0), true);
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     ImGui::Checkbox("Chat Spam Block", &config->m_chatSpamBlock);
     ImGui::Checkbox("Message Filter", &config->m_messageFilter);
     ImGui::Checkbox("Name Spammer", &config->m_nameSpammer);
     ImGui::Checkbox("Clan Tag Spammer", &config->m_clanTagSpammer);
     ImGui::Checkbox("Auto Pistol", &config->m_autoPistol);
     ImGui::Checkbox("Auto Reload", &config->m_autoReload);
+    ImGui::PopItemWidth();
     ImGui::EndChild();
 }
 
@@ -647,6 +690,6 @@ void UIManager::RenderLuaTab() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Open Workshop")) {
-        ShellExecuteA(NULL, "open", "https://neverlose.cc/workshop/", NULL, NULL, SW_SHOW);
+        ShellExecuteA(NULL, "open", "https://horizon.cc/workshop/", NULL, NULL, SW_SHOW);
     }
 }

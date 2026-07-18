@@ -1,11 +1,11 @@
 #pragma once
 #include <windows.h>
 
-#define NEVERLOSE_DEVICE_TYPE  0x8000
-#define NEVERLOSE_WIN32_NAME   L"\\\\.\\NeverloseDrv"
+#define HORIZON_DEVICE_TYPE  0x8000
+#define HORIZON_WIN32_NAME   L"\\\\.\\HorizonDrv"
 
 #define IOCTL_INJECT_DLL \
-    CTL_CODE(NEVERLOSE_DEVICE_TYPE, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
+    CTL_CODE(HORIZON_DEVICE_TYPE, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 #pragma pack(push, 1)
 typedef struct _INJECT_REQUEST {

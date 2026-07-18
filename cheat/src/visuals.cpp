@@ -23,6 +23,7 @@
 #include "ui_manager.h"
 #include "cheat_core.h"
 #include "no_spread.h"
+#include "chams.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <cmath>
@@ -33,17 +34,25 @@
 Visuals* g_Visuals = nullptr;
 
 // ---- CS2 bone connections (parent → child pairs) ----
+// animgraph_2_beta bone indices (verified live): pelvis1 spine1=3 spine2=4
+// chest23 neck6 head7, shoulder_l9 elbow10 hand11, shoulder_r13 elbow14 hand15,
+// hip_l17 knee18 heel19, hip_r20 knee21 heel22.
+enum { B_PELVIS=1, B_SPINE1=3, B_SPINE2=4, B_CHEST=23, B_NECK=6, B_HEAD=7,
+       B_SHOULDER_L=9, B_ELBOW_L=10, B_HAND_L=11,
+       B_SHOULDER_R=13, B_ELBOW_R=14, B_HAND_R=15,
+       B_HIP_L=17, B_KNEE_L=18, B_HEEL_L=19,
+       B_HIP_R=20, B_KNEE_R=21, B_HEEL_R=22 };
 static const std::pair<int,int> kBoneLinks[] = {
     // Spine
-    {7,6},{6,4},{4,3},{3,2},{2,1},
+    {B_PELVIS,B_SPINE1},{B_SPINE1,B_SPINE2},{B_SPINE2,B_CHEST},{B_CHEST,B_NECK},{B_NECK,B_HEAD},
     // Left arm
-    {6,8},{8,9},{9,10},{10,11},
+    {B_NECK,B_SHOULDER_L},{B_SHOULDER_L,B_ELBOW_L},{B_ELBOW_L,B_HAND_L},
     // Right arm
-    {6,12},{12,13},{13,14},{14,15},
+    {B_NECK,B_SHOULDER_R},{B_SHOULDER_R,B_ELBOW_R},{B_ELBOW_R,B_HAND_R},
     // Left leg
-    {1,22},{22,23},{23,24},
+    {B_PELVIS,B_HIP_L},{B_HIP_L,B_KNEE_L},{B_KNEE_L,B_HEEL_L},
     // Right leg
-    {1,25},{25,26},{26,27},
+    {B_PELVIS,B_HIP_R},{B_HIP_R,B_KNEE_R},{B_KNEE_R,B_HEEL_R},
 };
 static const int kNumBoneLinks = (int)(sizeof(kBoneLinks)/sizeof(kBoneLinks[0]));
 // Highest bone index we use: CS2 bones go up to index 27 (feet)
@@ -191,7 +200,7 @@ void Visuals::Render() {
             pi.bonesValid = true;
             for (int b = 0; b <= kMaxBone; ++b)
                 pi.bones[b] = CS2::GetBonePos(boneArr, b);
-            // Bone 7 = head in standard CS2 model
+            // Bone 7 = head_0 (animgraph_2_beta indices)
             if (std::isfinite(pi.bones[7].x) && std::isfinite(pi.bones[7].y) &&
                 std::isfinite(pi.bones[7].z) &&
                 (pi.bones[7].x != 0.f || pi.bones[7].y != 0.f || pi.bones[7].z != 0.f))
@@ -263,7 +272,8 @@ void Visuals::Render() {
             float scale = 700.f / dist; // standard distance scale
 
             // ---- 1. GLOW LAYER ----
-            if (cfg->m_glowEnabled) {
+            // Skip 2D overlay glow if D3D11 internal glow/chams is ready
+            if (cfg->m_glowEnabled && !Chams::IsReady()) {
                 ImVec4 gv = cfg->m_glowColor.Value;
                 float alpha = std::clamp(cfg->m_glowAlpha, 0.f, 1.f);
                 ImU32 outerCol = ImGui::ColorConvertFloat4ToU32(ImVec4(gv.x, gv.y, gv.z, alpha * .18f));
@@ -301,96 +311,7 @@ void Visuals::Render() {
             }
 
             // ---- 2. MAIN CHAMS LAYER (skeleton-based filled) ----
-            if (drawChams) {
-                ImU32 chamsColU32 = ToImU32(chamsCol);
-
-                if (pi.bonesValid) {
-                    // ---- Filled capsule helper ----
-                    // Draws a filled capsule (rounded rectangle) along a bone
-                    // segment by building a convex polygon from the perpendicular
-                    // offset at each endpoint plus semicircle caps.
-                    auto drawFilledCapsule = [&](ImVec2 a, ImVec2 b, float radius, ImU32 col) {
-                        float dx = b.x - a.x;
-                        float dy = b.y - a.y;
-                        float len = sqrtf(dx * dx + dy * dy);
-                        if (len < 0.1f) { dl->AddCircleFilled(a, radius, col); return; }
-
-                        // Perpendicular unit vector
-                        float nx = -dy / len;
-                        float ny =  dx / len;
-                        float px = nx * radius;
-                        float py = ny * radius;
-
-                        // Build convex hull: rectangle body + semicircle caps
-                        const int capSegs = 6;
-                        ImVec2 pts[4 + capSegs * 2];
-                        int idx = 0;
-
-                        // Side A (from a to b on one side)
-                        pts[idx++] = ImVec2(a.x + px, a.y + py);
-                        pts[idx++] = ImVec2(b.x + px, b.y + py);
-
-                        // Cap at B
-                        float angleStart = atan2f(py, px);
-                        for (int s = 0; s <= capSegs; ++s) {
-                            float angle = angleStart - IM_PI * s / (float)capSegs;
-                            pts[idx++] = ImVec2(b.x + cosf(angle) * radius,
-                                                b.y + sinf(angle) * radius);
-                        }
-
-                        // Side B (from b to a on other side)
-                        pts[idx++] = ImVec2(a.x - px, a.y - py);
-
-                        // Cap at A
-                        for (int s = 1; s < capSegs; ++s) {
-                            float angle = angleStart - IM_PI - IM_PI * s / (float)capSegs;
-                            pts[idx++] = ImVec2(a.x + cosf(angle) * radius,
-                                                a.y + sinf(angle) * radius);
-                        }
-
-                        dl->AddConvexPolyFilled(pts, idx, col);
-                    };
-
-                    // ---- Draw filled bone capsules ----
-                    for (int b = 0; b < kNumBoneLinks; ++b) {
-                        int pa = kBoneLinks[b].first;
-                        int ch = kBoneLinks[b].second;
-                        if (pa > kMaxBone || ch > kMaxBone) continue;
-                        Vector3& wp = pi.bones[pa];
-                        Vector3& wc = pi.bones[ch];
-                        if ((wp.x == 0.f && wp.y == 0.f) || (wc.x == 0.f && wc.y == 0.f)) continue;
-                        Vector2 sp, sc;
-                        if (!Utils::WorldToScreen(wp, sp, vm, screenW, screenH)) continue;
-                        if (!Utils::WorldToScreen(wc, sc, vm, screenW, screenH)) continue;
-
-                        // Vary capsule thickness by body part:
-                        //   Torso/spine bones are thicker, limbs thinner
-                        float baseThick;
-                        bool isTorso = (pa <= 7 && ch <= 7);
-                        bool isLeg   = (pa >= 22 || ch >= 22);
-                        if (isTorso)     baseThick = 8.0f;
-                        else if (isLeg)  baseThick = 5.5f;
-                        else             baseThick = 4.5f; // arms
-
-                        float thick = std::clamp(baseThick * scale, 2.0f, 22.0f);
-                        drawFilledCapsule(ImVec2(sp.x, sp.y), ImVec2(sc.x, sc.y), thick, chamsColU32);
-                    }
-
-                    // ---- Head circle ----
-                    Vector2 scrHeadBone;
-                    if (Utils::WorldToScreen(pi.head, scrHeadBone, vm, screenW, screenH)) {
-                        float rHead = std::clamp(9.0f * scale, 3.0f, 28.0f);
-                        dl->AddCircleFilled(ImVec2(scrHeadBone.x, scrHeadBone.y), rHead, chamsColU32);
-                    }
-                } else {
-                    // Fallback: filled bounding box when bones unavailable
-                    ImVec4 fill = chamsCol.Value;
-                    fill.w *= .50f;
-                    ImU32 chamsFillU32 = ImGui::ColorConvertFloat4ToU32(fill);
-                    dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1), chamsFillU32);
-                    dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1), chamsColU32, 0.f, 1.5f, ImDrawFlags_None);
-                }
-            }
+            // Disabled in favor of DX11 internal DrawIndexed chams.
         }
 
         // Helper for drawing text with a dropshadow
@@ -509,6 +430,15 @@ void Visuals::Render() {
                 Vector3& wp = pi.bones[pa];
                 Vector3& wc = pi.bones[ch];
                 if ((wp.x == 0.f && wp.y == 0.f) || (wc.x == 0.f && wc.y == 0.f)) continue;
+                // Garbage bones read ~900+ units off the player; real ones sit
+                // within a body-width of the origin. Skip links to bad bones so
+                // the skeleton doesn't shoot lines across the map.
+                auto sane = [&](const Vector3& v){
+                    float ddx = v.x - pi.origin.x, ddy = v.y - pi.origin.y;
+                    return (ddx*ddx + ddy*ddy) < (80.f*80.f) &&
+                           (v.z - pi.origin.z) > -20.f && (v.z - pi.origin.z) < 90.f;
+                };
+                if (!sane(wp) || !sane(wc)) continue;
                 Vector2 sp, sc;
                 if (!Utils::WorldToScreen(wp, sp, vm, screenW, screenH)) continue;
                 if (!Utils::WorldToScreen(wc, sc, vm, screenW, screenH)) continue;

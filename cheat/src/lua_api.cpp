@@ -378,7 +378,7 @@ void LuaAPI::FireEvent(const std::string& event, sol::variadic_args args) {
 // -----------------------------------------------------------------
 void LuaAPI::LoadScripts() {
     // Load from workshop directory
-    std::string workshopPath = "neverlose_workshop/";
+    std::string workshopPath = "horizon_workshop/";
     if (std::filesystem::exists(workshopPath)) {
         for (auto& entry : std::filesystem::directory_iterator(workshopPath)) {
             if (entry.path().extension() == ".lua") {
@@ -388,7 +388,7 @@ void LuaAPI::LoadScripts() {
     }
 
     // Load from autoexec
-    std::string autoexecPath = "neverlose_workshop/autoexec.lua";
+    std::string autoexecPath = "horizon_workshop/autoexec.lua";
     if (std::filesystem::exists(autoexecPath)) {
         LoadScript(autoexecPath);
     }

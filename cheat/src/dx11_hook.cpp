@@ -148,15 +148,15 @@ bool DX11Hook::Install() {
     // Create an invisible temp window for the dummy swap chain
     WNDCLASSEXA wc = { sizeof(wc) };
     wc.lpfnWndProc   = DefWindowProcA;
-    wc.lpszClassName = "NeverloseTemp";
+    wc.lpszClassName = "HorizonTemp";
     wc.hInstance     = GetModuleHandleA(nullptr);
     RegisterClassExA(&wc);
 
-    HWND hTempWnd = CreateWindowExA(0, "NeverloseTemp", nullptr, WS_OVERLAPPED,
+    HWND hTempWnd = CreateWindowExA(0, "HorizonTemp", nullptr, WS_OVERLAPPED,
                                      0, 0, 2, 2, nullptr, nullptr, wc.hInstance, nullptr);
     if (!hTempWnd) {
         Logger::LogError("DX11Hook: CreateWindowEx failed");
-        UnregisterClassA("NeverloseTemp", wc.hInstance);
+        UnregisterClassA("HorizonTemp", wc.hInstance);
         return false;
     }
 
@@ -185,11 +185,11 @@ bool DX11Hook::Install() {
 
     HMODULE hD3D11 = GetModuleHandleA("d3d11.dll");
     if (!hD3D11) hD3D11 = LoadLibraryA("d3d11.dll");
-    if (!hD3D11) { Logger::LogError("DX11Hook: d3d11.dll not loaded"); DestroyWindow(hTempWnd); UnregisterClassA("NeverloseTemp", wc.hInstance); return false; }
+    if (!hD3D11) { Logger::LogError("DX11Hook: d3d11.dll not loaded"); DestroyWindow(hTempWnd); UnregisterClassA("HorizonTemp", wc.hInstance); return false; }
 
     auto pCreate = (PFN_D3D11CreateDeviceAndSwapChain)
         GetProcAddress(hD3D11, "D3D11CreateDeviceAndSwapChain");
-    if (!pCreate) { Logger::LogError("DX11Hook: D3D11CreateDeviceAndSwapChain not found"); DestroyWindow(hTempWnd); UnregisterClassA("NeverloseTemp", wc.hInstance); return false; }
+    if (!pCreate) { Logger::LogError("DX11Hook: D3D11CreateDeviceAndSwapChain not found"); DestroyWindow(hTempWnd); UnregisterClassA("HorizonTemp", wc.hInstance); return false; }
 
     HRESULT hr = pCreate(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
@@ -197,7 +197,7 @@ bool DX11Hook::Install() {
         &scd, &pSC, &pDevice, &fl, &pCtx);
 
     DestroyWindow(hTempWnd);
-    UnregisterClassA("NeverloseTemp", wc.hInstance);
+    UnregisterClassA("HorizonTemp", wc.hInstance);
 
     if (FAILED(hr) || !pSC) {
         Logger::LogError("DX11Hook: D3D11CreateDeviceAndSwapChain failed (hr=0x" +

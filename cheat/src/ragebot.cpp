@@ -201,7 +201,7 @@ void Ragebot::UpdateRecords(uintptr_t entityList, uintptr_t localCtrl) {
         EntityState& state = StateFor(i);
         int headIdx = state.head;
 
-        // Fetch head bone (bone 7)
+        // Fetch head bone (bone 7 = head_0, animgraph_2_beta)
         Vector3 headPos = CS2::GetAbsOrigin(pawn);
         headPos.z += 72.f; // Fallback
         uintptr_t bones = CS2::GetBoneArray(pawn);
@@ -278,7 +278,11 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
     Target bestTarget;
     if (!cfg) return bestTarget;
 
-    float bestFov = cfg->m_ragebotFOV > 0.f ? cfg->m_ragebotFOV : 180.f;
+    // Select the enemy NEAREST to the local player (stable), not lowest-FOV
+    // (which flips between enemies as the crosshair moves — that felt random and
+    // made the fire flicker). A FOV cap still rejects enemies far off-crosshair.
+    const float fovCap = cfg->m_ragebotFOV > 0.f ? cfg->m_ragebotFOV : 180.f;
+    float bestDist = 1e18f;
 
     for (int i = 1; i <= 64; ++i) {
         uintptr_t ctrl = CS2::GetEntityByIndex(entityList, i);
@@ -293,6 +297,10 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         int hp = CS2::GetHealth(pawn);
         if (hp <= 0 || hp > 100) continue;
         if (CS2::GetLife(pawn) != 0) continue;
+        // Only target enemies you can actually hit. Until the penetration traces
+        // work (autowall), this is a spotted/visibility gate — it stops targeting
+        // fully-hidden players but also can't wallbang penetrable cover yet.
+        if (cfg->m_ragebotVisibleCheck && !CS2::IsVisibleToLocal(pawn, localPawn)) continue;
 
         Vector3 pos = CS2::GetAbsOrigin(pawn);
         if (pos.x == 0.f && pos.y == 0.f) continue;
@@ -306,7 +314,7 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         // Scan multiple bones for HvH optimization
         std::vector<int> bonesToScan;
         if (cfg->m_ragebotMultipoint) {
-            bonesToScan = { 7, 6, 4, 2, 1 }; // Head, Neck, Chest, Spine, Pelvis
+            bonesToScan = { 7, 6, 23, 3, 1 }; // Head, Neck, Chest, Spine1, Pelvis
         } else {
             bonesToScan = { 7, 1 }; // Head, Pelvis
         }
@@ -395,8 +403,15 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
         }
 
         float fov = ::CalcFov(viewAng, ::CalcAngle(eyePos, selectedAimPoint));
-        if (fov < bestFov) {
-            bestFov = fov;
+        if (fov > fovCap) continue; // off-crosshair enemies rejected
+
+        // Nearest-by-distance with stickiness: the enemy we were already on gets
+        // a 25% distance discount so the target doesn't jitter between players.
+        float score = Dist3D(eyePos, selectedAimPoint);
+        if (pawn == m_lastTarget) score *= 0.75f;
+
+        if (score < bestDist) {
+            bestDist = score;
             bestTarget.pawn = pawn;
             bestTarget.controller = ctrl;
             bestTarget.index = i;
@@ -413,31 +428,40 @@ Ragebot::Target Ragebot::SelectTarget(uintptr_t entityList, uintptr_t localCtrl,
 // Run() — ~1000Hz from CheatCore::Update()
 // Selects best target, stores aim angle; CreateMove hook applies it.
 // ====================================================================
+// Logs a reason string only when it changes, so the hot path never spams.
+static void RageTrace(const char* reason) {
+    static const char* last = nullptr;
+    if (reason != last) { last = reason; Logger::Log("[RAGE] %s", reason); }
+}
+
 void Ragebot::Run(CUserCmd*) {
     static DWORD lastDiag = 0;
     const DWORD nowDiag = GetTickCount();
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
     if (!cfg || !cfg->m_ragebotEnabled) {
+        RageTrace("disabled (cfg off)");
         ReleaseRageMouse();
         CreateMoveHook::ClearRagebotAim();
         m_firing = false; return;
     }
     if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) {
+        RageTrace("menu open");
         ReleaseRageMouse();
         CreateMoveHook::ClearRagebotAim(); return;
     }
-    if (!GetForegroundWindow()) return;
+    if (!GetForegroundWindow()) { RageTrace("no foreground window"); return; }
 
     uintptr_t lpAddr  = Offsets::Get("dwLocalPlayerPawn");
     uintptr_t lcAddr  = Offsets::Get("dwLocalPlayerController");
     uintptr_t listAddr = Offsets::Get("dwEntityList");
     uintptr_t vaAddr  = Offsets::Get("dwViewAngles");
-    if (!lpAddr || !lcAddr || !listAddr || !vaAddr) return;
+    if (!lpAddr || !lcAddr || !listAddr || !vaAddr) { RageTrace("null offset (pawn/ctrl/list/viewang)"); return; }
 
     uintptr_t lp  = CS2::Read<uintptr_t>(lpAddr);
     uintptr_t lc  = CS2::Read<uintptr_t>(lcAddr);
     uintptr_t list = CS2::Read<uintptr_t>(listAddr);
-    if (!lp || !lc || !list) return;
+    if (!lp || !lc || !list) { RageTrace("null lp/lc/list read (stale ptr offsets)"); return; }
+    RageTrace("running — selecting target");
 
     uintptr_t activeWeapon = CS2::GetActiveWeapon(list, lp);
     if (activeWeapon != g_lastRageWeapon) {
@@ -458,8 +482,8 @@ void Ragebot::Run(CUserCmd*) {
     Vector3 origin = CS2::GetAbsOrigin(lp);
     if (origin.x == 0.f && origin.y == 0.f) return;
 
-    bool crouching = CS2::Read<bool>(lp + 0x415) || CS2::Read<bool>(lp + 0x416);
-    Vector3 eye = { origin.x, origin.y, origin.z + (crouching ? 46.f : 64.f) };
+    Vector3 viewOffset = CS2::Read<Vector3>(lp + Offsets::Get("m_vecViewOffset", 0xE78));
+    Vector3 eye = origin + viewOffset;
 
     Vector3 va = CS2::Read<Vector3>(vaAddr);
     int myTeam = CS2::GetTeam(lp);
@@ -494,11 +518,11 @@ void Ragebot::Run(CUserCmd*) {
         Memory::Write(vaAddr, &bestAim, sizeof(bestAim));
 
     // ---- Auto-scope ----
-    if (cfg->m_ragebotQuickScope && IsSniper(list, lp)) {
+    bool sniperScope = cfg->m_ragebotQuickScope && IsSniper(list, lp);
+    if (sniperScope) {
         bool localScoped = CS2::Read<bool>(lp + Offsets::Get("m_bIsScoped", 0x1C70));
         if (!localScoped) {
-            // Do not fire until the next tick observes m_bIsScoped.  The
-            // scoped state is engine-owned; scope-removal must never clear it.
+            // Hold scope (no fire) until the engine reports m_bIsScoped.
             CreateMoveHook::SetRagebotAim(bestAim, false, false, true);
             m_lastTarget = target.pawn; return;
         }
@@ -510,7 +534,9 @@ void Ragebot::Run(CUserCmd*) {
     }
 
     // ---- Pass aim + fire intent to CreateMove hook ----
+    // Keep scope HELD while firing for snipers — releasing it (scope=false) made
+    // the gun unscope every tick, oscillating scope/unscope and stalling the shot.
     bool wantFire = cfg->m_ragebotAutoFire || (GetAsyncKeyState(VK_LBUTTON) & 0x8000);
-    CreateMoveHook::SetRagebotAim(bestAim, wantFire, cfg->m_ragebotAutoStop);
+    CreateMoveHook::SetRagebotAim(bestAim, wantFire, cfg->m_ragebotAutoStop, sniperScope);
     m_lastTarget = target.pawn;
 }

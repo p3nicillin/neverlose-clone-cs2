@@ -39,7 +39,7 @@ void CheatRevealer::Detect() {
 // -----------------------------------------------------------------
 void CheatRevealer::CheckSharedESP() {
     // (Implementation requires SharedESP packet detection)
-    // Neverlose uses encrypted SharedESP with SHA224 + RSA
+    // Horizon uses encrypted SharedESP with SHA224 + RSA
 }
 
 // -----------------------------------------------------------------
@@ -47,7 +47,7 @@ void CheatRevealer::CheckSharedESP() {
 // -----------------------------------------------------------------
 void CheatRevealer::CheckCheatSignatures() {
     std::map<std::string, std::vector<std::string>> signatures = {
-        {"Neverlose", {"0xDEADBEEF", "0xCAFEBABE"}},
+        {"Horizon", {"0xDEADBEEF", "0xCAFEBABE"}},
         {"Gamesense", {"0xBEEFCAFE", "0xDEADFA12"}},
         {"Fatality", {"0x12345678", "0x87654321"}},
         {"Legendware", {"0xABCDEF01", "0x10FEDCBA"}},

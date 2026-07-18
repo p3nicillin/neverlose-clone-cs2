@@ -111,8 +111,8 @@ void Misc::Update() {
         if (pawn2) {
             float z = 0.f;
             const struct { const char* n; uintptr_t fb; } ff[] = {
-                { "m_flFlashDuration", 0x121C },
-                { "m_flFlashMaxAlpha", 0x1218 },
+                { "m_flFlashDuration", 0x1428 },
+                { "m_flFlashMaxAlpha", 0x1424 },
             };
             for (auto& f : ff) {
                 uintptr_t off = Offsets::Get(f.n, f.fb);
@@ -289,7 +289,7 @@ void Misc::DoNameSpammer() {
     if (now - lastSpam < 500) return; // limit rate to avoid kicks
 
     static int nameCycle = 0;
-    const char* baseName = "Neverlose.cc";
+    const char* baseName = "Horizon.cc";
     char newName[128];
     
     if (nameCycle == 0) {
@@ -319,7 +319,7 @@ void Misc::DoClanTagSpammer() {
     // Clan tags in CS2 are handled via Steam network group IDs rather than a client-side string convar.
     // We log the animation cycle to the debug console.
     static int cycle = 0;
-    const char* tags[] = { "N", "Ne", "Nev", "Neve", "Never", "Neverl", "Neverlo", "Neverlos", "Neverlose", "Neverlose.cc" };
+    const char* tags[] = { "N", "Ne", "Nev", "Neve", "Never", "Neverl", "Neverlo", "Neverlos", "Horizon", "Horizon.cc" };
     int numTags = sizeof(tags) / sizeof(tags[0]);
     
     Logger::Log("ClanTagSpam: setting tag to " + std::string(tags[cycle]));

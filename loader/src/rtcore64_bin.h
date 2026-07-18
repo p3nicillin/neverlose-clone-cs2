@@ -5,7 +5,7 @@
 // The actual binary must be placed at: loader/src/RTCore64.sys
 // Then run: python tools/bin2h.py loader/src/RTCore64.sys loader/src/rtcore64_bin.h
 //
-// OR: place RTCore64.sys next to neverlose_loader.exe at runtime —
+// OR: place RTCore64.sys next to horizon_loader.exe at runtime —
 // the loader will look for it there if the embedded array is empty.
 
 // Placeholder: zero-length array causes the loader to look for RTCore64.sys on disk.

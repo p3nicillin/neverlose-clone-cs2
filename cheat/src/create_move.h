@@ -1,3 +1,7 @@
+// =================================================================
+// create_move.h  —  CInput::CreateMove hook interface
+// =================================================================
+
 #pragma once
 #include <cstdint>
 #include "game_classes.h"
@@ -37,6 +41,7 @@ public:
 
     static void OnCreateMove(uintptr_t input, CS2UserCmd* cmd, bool active);
     static void ApplyAngle(void* pInput, const Vector3& angle, bool silent = true);
+    static void SetAttack(void* pInput, bool attack);
 
     static bool IsActive() { return s_installed; }
 

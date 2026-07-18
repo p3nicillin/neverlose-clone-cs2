@@ -35,8 +35,8 @@ bool Config::Initialize() {
     Logger::Log("Initializing config system...");
 
     // Create config directory if it doesn't exist
-    if (!std::filesystem::exists("neverlose_configs")) {
-        std::filesystem::create_directory("neverlose_configs");
+    if (!std::filesystem::exists("horizon_configs")) {
+        std::filesystem::create_directory("horizon_configs");
     }
 
     // Load default config
@@ -83,6 +83,7 @@ void Config::LoadDefaultConfig() {
     m_ragebotQuickScope = true;
     m_ragebotSilentAimbot = true;
     m_ragebotVisualAimbot = false; // silent by default, visual as option
+    m_ragebotVisibleCheck = true;  // only target enemies you can see (until traces work)
     m_ragebotLegMovement = false;
     m_ragebotMultipoint = true;
     m_ragebotMultipointScale = 0.5f;
@@ -204,12 +205,14 @@ void Config::LoadDefaultConfig() {
     m_triggerbotEnabled = false;
     m_triggerbotFov     = 1.5f;
     m_triggerbotDelay   = 50;
+    m_triggerbotVisibleCheck = true;
 
     m_aimbotEnabled   = false;
     m_aimbotKey       = 0;      // 0 = LMB
     m_aimbotFov       = 5.f;    // degrees
     m_aimbotSmooth    = 7.f;    // 1=instant, higher=slower/more legit
     m_aimbotTeamcheck = false;
+    m_aimbotVisibleCheck = true;
 
     m_currentConfig = "default";
 }
@@ -356,7 +359,7 @@ bool Config::Save(const std::string& name) {
         j["misc"]["third_person_dist"] = m_thirdPersonDist;
 
         // Write to file
-        std::string path = "neverlose_configs/" + name + ".json";
+        std::string path = "horizon_configs/" + name + ".json";
         std::ofstream file(path);
         if (!file.is_open()) {
             Logger::LogError("Failed to save config: " + name);
@@ -381,7 +384,7 @@ bool Config::Save(const std::string& name) {
 // -----------------------------------------------------------------
 bool Config::Load(const std::string& name) {
     try {
-        std::string path = "neverlose_configs/" + name + ".json";
+        std::string path = "horizon_configs/" + name + ".json";
         std::ifstream file(path);
         if (!file.is_open()) {
             Logger::LogWarning("Config not found: " + name + ", loading defaults");
@@ -575,7 +578,7 @@ bool Config::Load(const std::string& name) {
 // -----------------------------------------------------------------
 bool Config::Delete(const std::string& name) {
     try {
-        std::string path = "neverlose_configs/" + name + ".json";
+        std::string path = "horizon_configs/" + name + ".json";
         if (std::filesystem::remove(path)) {
             Logger::Log("Deleted config: " + name);
             return true;
@@ -596,9 +599,9 @@ bool Config::Export(const std::string& name) {
     // Save and then copy to exports folder
     if (Save(name)) {
         try {
-            std::string src = "neverlose_configs/" + name + ".json";
-            std::string dst = "neverlose_configs/exports/" + name + ".json";
-            std::filesystem::create_directories("neverlose_configs/exports");
+            std::string src = "horizon_configs/" + name + ".json";
+            std::string dst = "horizon_configs/exports/" + name + ".json";
+            std::filesystem::create_directories("horizon_configs/exports");
             std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing);
             Logger::Log("Exported config: " + name);
             return true;
@@ -616,8 +619,8 @@ bool Config::Export(const std::string& name) {
 // -----------------------------------------------------------------
 bool Config::Import(const std::string& name) {
     try {
-        std::string src = "neverlose_configs/exports/" + name + ".json";
-        std::string dst = "neverlose_configs/" + name + ".json";
+        std::string src = "horizon_configs/exports/" + name + ".json";
+        std::string dst = "horizon_configs/" + name + ".json";
         if (std::filesystem::exists(src)) {
             std::filesystem::copy_file(src, dst, std::filesystem::copy_options::overwrite_existing);
             Logger::Log("Imported config: " + name);
@@ -638,7 +641,7 @@ bool Config::Import(const std::string& name) {
 std::vector<std::string> Config::GetList() {
     std::vector<std::string> configs;
     try {
-        for (auto& entry : std::filesystem::directory_iterator("neverlose_configs")) {
+        for (auto& entry : std::filesystem::directory_iterator("horizon_configs")) {
             if (entry.path().extension() == ".json") {
                 configs.push_back(entry.path().stem().string());
             }

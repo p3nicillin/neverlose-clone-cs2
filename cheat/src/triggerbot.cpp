@@ -3,12 +3,14 @@
 // =================================================================
 
 #include "triggerbot.h"
+#include "create_move.h"
 #include "game_classes.h"
 #include "offsets.h"
 #include "memory.h"
 #include "cheat_core.h"
 #include "config.h"
 #include "ui_manager.h"
+#include "no_spread.h"
 #include "aimbot.h"
 #include <windows.h>
 #include <cmath>
@@ -39,12 +41,12 @@ void Triggerbot::Update(void* pInput) {
     Vector3 origin  = CS2::GetAbsOrigin(localPawn);
     if (origin.x == 0.f && origin.y == 0.f) return;
 
-    Vector3 eyePos  = { origin.x, origin.y, origin.z + 64.f };
-    Vector3 viewAng;
-    if (pInput)
-        viewAng = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
-    else
-        viewAng = CS2::Read<Vector3>(viewAngAddr);
+    Vector3 viewOffset = CS2::Read<Vector3>(localPawn + Offsets::Get("m_vecViewOffset", 0xE78));
+    Vector3 eyePos  = origin + viewOffset;
+    // Read the current view from the authoritative dwViewAngles global. The
+    // CCSGOInput input-angle offset (0xBE0) is an unverified guess whose runtime
+    // auto-discovery is failing, so reading it gave garbage and broke the FOV test.
+    Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
 
     int     myTeam  = CS2::GetTeam(localPawn);
 
@@ -60,6 +62,7 @@ void Triggerbot::Update(void* pInput) {
         if (team == myTeam) continue;
         int eh = CS2::GetHealth(pawn);
         if (eh <= 0 || eh > 100) continue;
+        if (cfg->m_triggerbotVisibleCheck && !NoSpread::IsVisible(localPawn, pawn)) continue;
 
         Vector3 pos  = CS2::GetAbsOrigin(pawn);
         if (pos.x == 0.f && pos.y == 0.f) continue;
@@ -74,37 +77,29 @@ void Triggerbot::Update(void* pInput) {
         }
     }
 
-    // Simple delay timer + state machine
+    // Fire via SendInput mouse click. The command-path (SetAttack) writes the
+    // CUserCmd button through offsets whose auto-discovery is failing, so it
+    // never actually shot; a synthesized click works regardless of offsets.
     static DWORD fireSince  = 0;
     static bool  mouseDown  = false;
     DWORD now = GetTickCount();
 
     if (onTarget) {
-        if (now - fireSince >= (DWORD)cfg->m_triggerbotDelay) {
-            if (pInput) {
-                // Command-path firing: set IN_ATTACK in CUserCmd
-                int32_t  seq  = CS2::Read<int32_t>((uintptr_t)pInput + 0x0A74);
-                int      idx  = ((seq % 150) + 150) % 150;
-                uintptr_t pCmd = (uintptr_t)pInput + 0x0250 + (uintptr_t)idx * 0x88;
-                uint64_t cur = CS2::Read<uint64_t>(pCmd + 0x38);
-                cur |= 1ULL;
-                Memory::Write(pCmd + 0x38, &cur, 8);
-            } else if (!mouseDown) {
-                INPUT inp = {}; inp.type = INPUT_MOUSE;
-                inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-                SendInput(1, &inp, sizeof(INPUT));
-                mouseDown = true;
-            }
-        } else if (fireSince == 0) {
-            fireSince = now;
+        if (fireSince == 0) fireSince = now;
+        if (now - fireSince >= (DWORD)cfg->m_triggerbotDelay && !mouseDown) {
+            INPUT inp = {}; inp.type = INPUT_MOUSE;
+            inp.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            SendInput(1, &inp, sizeof(INPUT));
+            mouseDown = true;
         }
     } else {
         fireSince = 0;
-        if (mouseDown && !pInput) {
+        if (mouseDown) {
             INPUT inp = {}; inp.type = INPUT_MOUSE;
             inp.mi.dwFlags = MOUSEEVENTF_LEFTUP;
             SendInput(1, &inp, sizeof(INPUT));
             mouseDown = false;
         }
     }
+    (void)pInput;
 }

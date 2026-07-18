@@ -16,7 +16,7 @@ NTSTATUS KernelInjectDLL(PINJECT_REQUEST req) {
     PEPROCESS pProcess = NULL;
     NTSTATUS status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)req->ProcessId, &pProcess);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] InjectDLL: PsLookupProcessByProcessId failed: 0x%08X\n", status);
+        DbgPrint("[Horizon] InjectDLL: PsLookupProcessByProcessId failed: 0x%08X\n", status);
         return status;
     }
 
@@ -25,7 +25,7 @@ NTSTATUS KernelInjectDLL(PINJECT_REQUEST req) {
     status = ObOpenObjectByPointer(pProcess, OBJ_KERNEL_HANDLE, NULL,
                                    PROCESS_ALL_ACCESS, *PsProcessType, KernelMode, &hProcess);
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] InjectDLL: ObOpenObjectByPointer failed: 0x%08X\n", status);
+        DbgPrint("[Horizon] InjectDLL: ObOpenObjectByPointer failed: 0x%08X\n", status);
         ObDereferenceObject(pProcess);
         return status;
     }
@@ -42,13 +42,13 @@ NTSTATUS KernelInjectDLL(PINJECT_REQUEST req) {
                                      &allocSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (NT_SUCCESS(status)) {
         RtlCopyMemory(pathBuffer, req->DllPath, pathBytes);
-        DbgPrint("[Neverlose] InjectDLL: allocated path buffer at %p\n", pathBuffer);
+        DbgPrint("[Horizon] InjectDLL: allocated path buffer at %p\n", pathBuffer);
     }
 
     KeUnstackDetachProcess(&apcState);
 
     if (!NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] InjectDLL: ZwAllocateVirtualMemory failed: 0x%08X\n", status);
+        DbgPrint("[Horizon] InjectDLL: ZwAllocateVirtualMemory failed: 0x%08X\n", status);
         ZwClose(hProcess);
         ObDereferenceObject(pProcess);
         return status;
@@ -69,12 +69,12 @@ NTSTATUS KernelInjectDLL(PINJECT_REQUEST req) {
     );
 
     if (NT_SUCCESS(status)) {
-        DbgPrint("[Neverlose] InjectDLL: created remote thread TID=%llu\n",
+        DbgPrint("[Horizon] InjectDLL: created remote thread TID=%llu\n",
                  (ULONG64)(ULONG_PTR)clientId.UniqueThread);
         ZwWaitForSingleObject(hThread, FALSE, NULL);
         ZwClose(hThread);
     } else {
-        DbgPrint("[Neverlose] InjectDLL: RtlCreateUserThread failed: 0x%08X\n", status);
+        DbgPrint("[Horizon] InjectDLL: RtlCreateUserThread failed: 0x%08X\n", status);
     }
 
     ZwClose(hProcess);

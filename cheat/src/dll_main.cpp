@@ -1,5 +1,5 @@
 // =================================================================
-// dll_main.cpp - Entry point for Neverlose cheat DLL
+// dll_main.cpp - Entry point for Horizon cheat DLL
 // =================================================================
 
 #include <windows.h>
@@ -14,7 +14,7 @@ static uintptr_t g_MainThread = 0;
 // SEH filter — swallows exceptions so CS2 keeps running
 static LONG WINAPI CheatSEHFilter(EXCEPTION_POINTERS* ep) {
     char buf[256];
-    sprintf_s(buf, "[Neverlose] SEH 0x%08X at 0x%p\n",
+    sprintf_s(buf, "[Horizon] SEH 0x%08X at 0x%p\n",
               ep->ExceptionRecord->ExceptionCode,
               ep->ExceptionRecord->ExceptionAddress);
     Logger::Log(buf);
@@ -26,7 +26,7 @@ static LONG WINAPI CheatSEHFilter(EXCEPTION_POINTERS* ep) {
 static void RawLog(const char* msg) {
     char path[MAX_PATH];
     GetTempPathA(MAX_PATH, path);
-    lstrcatA(path, "neverlose.log");
+    lstrcatA(path, "horizon.log");
     HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ,
                            NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h != INVALID_HANDLE_VALUE) {
@@ -58,7 +58,7 @@ static void RunCheat() {
         return;
     }
 
-    Logger::Log("Neverlose.cc loaded — press INSERT to toggle menu");
+    Logger::Log("Horizon.cc loaded — press INSERT to toggle menu");
 
     while (g_Cheat->IsRunning()) {
         g_Cheat->Update();
@@ -68,7 +68,7 @@ static void RunCheat() {
     g_Cheat->Shutdown();
     delete g_Cheat;
     g_Cheat = nullptr;
-    Logger::Log("Neverlose.cc unloaded");
+    Logger::Log("Horizon.cc unloaded");
     Logger::Shutdown();
 }
 

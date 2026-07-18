@@ -10,6 +10,8 @@
 #include "offsets.h"
 #include "memory.h"
 #include "game_classes.h"
+#include "no_spread.h"
+#include "logger.h"
 #include <cmath>
 #include <windows.h>
 
@@ -46,33 +48,41 @@ float Aimbot::CalcFov(const Vector3& va, const Vector3& aa) {
     return sqrtf(dp*dp + dy*dy);
 }
 
+// Logs a reason string only when it changes, so hot-path diagnostics never spam.
+static void AimTrace(const char* reason) {
+    static const char* last = nullptr;
+    if (reason != last) { last = reason; Logger::Log("[AIMBOT] %s", reason); }
+}
+
 void Aimbot::Update(void* pInput) {
     Config* cfg = g_Cheat ? g_Cheat->GetConfig() : nullptr;
-    if (!cfg || !cfg->m_aimbotEnabled) return;
+    if (!cfg || !cfg->m_aimbotEnabled) { AimTrace("disabled (cfg off)"); return; }
 
     int aimKey = cfg->m_aimbotKey ? cfg->m_aimbotKey : VK_LBUTTON;
-    if (!(GetAsyncKeyState(aimKey) & 0x8000)) return;
-    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) return;
+    if (!(GetAsyncKeyState(aimKey) & 0x8000)) { AimTrace("aim key not held"); return; }
+    if (g_Cheat && g_Cheat->GetUI() && g_Cheat->GetUI()->IsMenuOpen()) { AimTrace("menu open"); return; }
 
     uintptr_t localCtrlAddr = Offsets::Get("dwLocalPlayerController");
     uintptr_t listAddr      = Offsets::Get("dwEntityList");
     uintptr_t viewAngAddr   = Offsets::Get("dwViewAngles");
-    if (!localCtrlAddr || !listAddr || !viewAngAddr) return;
+    if (!localCtrlAddr || !listAddr || !viewAngAddr) { AimTrace("null offset (ctrl/list/viewang)"); return; }
 
     uintptr_t localCtrl  = CS2::Read<uintptr_t>(localCtrlAddr);
     uintptr_t entityList = CS2::Read<uintptr_t>(listAddr);
-    if (!localCtrl || !entityList) return;
+    if (!localCtrl || !entityList) { AimTrace("null localCtrl/entityList read (stale ptr offsets)"); return; }
 
     uintptr_t localPawn = CS2::GetPawn(entityList, localCtrl);
-    if (!localPawn) return;
+    if (!localPawn) { AimTrace("null localPawn"); return; }
+    AimTrace("active — scanning for target");
 
     Vector3 origin  = CS2::GetAbsOrigin(localPawn);
-    Vector3 eyePos  = { origin.x, origin.y, origin.z + 64.f };
-    Vector3 viewAng;
-    if (pInput)
-        viewAng = CS2::Read<Vector3>((uintptr_t)pInput + 0x0BE0);
-    else
-        viewAng = CS2::Read<Vector3>(viewAngAddr);
+    Vector3 viewOffset = CS2::Read<Vector3>(localPawn + Offsets::Get("m_vecViewOffset", 0xE78));
+    Vector3 eyePos  = origin + viewOffset;
+    // Always read the current view from the authoritative dwViewAngles global.
+    // The CCSGOInput input-angle offset (0xBE0) is an unverified guess and the
+    // runtime auto-discovery for it is failing, so reading it yields garbage,
+    // which made newAngle (= view + delta) snap to a wrong absolute direction.
+    Vector3 viewAng = CS2::Read<Vector3>(viewAngAddr);
 
     int     myTeam  = CS2::GetTeam(localPawn);
 
@@ -90,15 +100,31 @@ void Aimbot::Update(void* pInput) {
         if (!cfg->m_aimbotTeamcheck && team == myTeam) continue;
         int hp = CS2::GetHealth(pawn);
         if (hp <= 0 || hp > 100) continue;
+        if (cfg->m_aimbotVisibleCheck && !NoSpread::IsVisible(localPawn, pawn)) continue;
         Vector3 pos = CS2::GetAbsOrigin(pawn);
         if (pos.x == 0.f && pos.y == 0.f) continue;
         Vector3 head = { pos.x, pos.y, pos.z + 62.f };
+        uintptr_t boneArr = CS2::GetBoneArray(pawn);
+        if (boneArr) {
+            Vector3 hb = CS2::GetBonePos(boneArr, 7);
+            // Only trust the bone position if it is physically near the pawn
+            // origin. A stale/wrong bone-array offset yields finite-but-garbage
+            // coordinates far from the player, which would otherwise push the
+            // target outside the FOV and silently disable the aimbot.
+            float dx = hb.x - pos.x, dy = hb.y - pos.y, dz = hb.z - pos.z;
+            if (std::isfinite(hb.x) && std::isfinite(hb.y) && std::isfinite(hb.z) &&
+                (hb.x != 0.f || hb.y != 0.f || hb.z != 0.f) &&
+                fabsf(dx) < 40.f && fabsf(dy) < 40.f && dz > 20.f && dz < 100.f) {
+                head = hb;
+            }
+        }
         Vector3 ang  = CalcAngle(eyePos, head);
         float   fov  = CalcFov(viewAng, ang);
         if (fov < bestFov) { bestFov = fov; bestPawn = pawn; bestHead = head; }
     }
 
-    if (!bestPawn) return;
+    if (!bestPawn) { AimTrace("no target within FOV"); return; }
+    AimTrace("TARGET ACQUIRED — applying angle");
 
     Vector3 targetAng = CalcAngle(eyePos, bestHead);
     if (cfg->m_legitbotRcs > 0.f) {
@@ -124,8 +150,10 @@ void Aimbot::Update(void* pInput) {
     newAng.z = 0.f;
     newAng   = NormAngles(newAng);
 
-    if (pInput)
-        CreateMoveHook::ApplyAngle(pInput, newAng, false);
-    else
-        Memory::Write(viewAngAddr, &newAng, sizeof(newAng));
+    // Write straight to the dwViewAngles global. ApplyAngle also writes the
+    // CCSGOInput command viewangles via offsets whose auto-discovery is failing,
+    // corrupting the view; the global write is authoritative and moves the aim
+    // reliably for a legit assist.
+    Memory::Write(viewAngAddr, &newAng, sizeof(newAng));
+    (void)pInput;
 }

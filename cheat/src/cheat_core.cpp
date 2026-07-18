@@ -5,6 +5,7 @@
 #include "cheat_core.h"
 #include "logger.h"
 #include "offsets.h"
+#include "schema_dump.h"
 #include "hooks.h"
 #include "memory.h"
 #include "ragebot.h"
@@ -20,6 +21,7 @@
 #include "aimbot.h"
 #include "create_move.h"
 #include "no_spread.h"
+#include <windows.h>
 #include "triggerbot.h"
 #include "chams.h"
 #include <process.h>
@@ -67,6 +69,11 @@ bool CheatCore::Initialize() {
         return false;
     }
 
+    // Resolve schema struct offsets live from CSchemaSystem — self-heals the
+    // C_* entity/service field offsets across game updates (overrides the
+    // hardcoded fallbacks with the true per-build values).
+    SchemaDump::Run();
+
     Logger::Log("Step 3: Hooks::Initialize");
     if (!m_hooks->Initialize()) {
         Logger::LogError("Failed to initialize hooks");
@@ -99,7 +106,11 @@ bool CheatCore::Initialize() {
 
     Logger::Log("Step 7: DX11Hook + CreateMove (background, 2s delay)");
     _beginthreadex(nullptr, 0, [](void*) -> unsigned {
-        Sleep(2000);
+        // Wait for offsets to be fetched (up to 5 seconds)
+        DWORD start = GetTickCount();
+        while (!Offsets::IsFetched() && (GetTickCount() - start < 5000)) {
+            Sleep(100);
+        }
         Logger::Log("DX11Hook: installing...");
         if (DX11Hook::Install())
             Logger::Log("DX11Hook: Present hooked");
@@ -135,21 +146,21 @@ void CheatCore::Update() {
 
     m_frameCount++;
 
+    static bool loggedRun = false;
+    if (!loggedRun) {
+        loggedRun = true;
+        Logger::Log("[CORE] Update loop running (CreateMove hook %s)",
+                    CreateMoveHook::IsActive() ? "ACTIVE" : "NOT active");
+    }
+
+    // NOTE: the F8 TraceShape dumper is polled ONLY from hkCreateMove (the game
+    // thread). It brute-force-calls CS2 physics functions, which must not run
+    // from this worker thread — doing so races the hook's call and crashes.
+
     // Fire Lua setup_command event
     m_lua->FireEvent("setup_command");
 
-    // Only one feature family may own view angles and command buttons at a
-    // time.  Rage/anti-aim stay enabled in many existing configs, so merely
-    // enabling Legit previously let those writers silently overwrite it.
-    const bool legitMode = m_config->m_aimbotEnabled || m_config->m_triggerbotEnabled;
-    if (legitMode) {
-        CreateMoveHook::ClearRagebotAim();
-        CreateMoveHook::ClearAntiAim();
-    } else {
-        m_ragebot->Run(nullptr);
-        bool sendPacket = true;
-        m_antiaim->Apply(nullptr, sendPacket);
-    }
+    // Ragebot and AntiAim updates are handled synchronously inside hkCreateMove to prevent race conditions.
 
     // Update misc features (bhop, no recoil, no flash)
     m_misc->Update();

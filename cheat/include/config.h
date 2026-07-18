@@ -37,6 +37,7 @@ public:
     bool m_ragebotQuickScope;
     bool m_ragebotSilentAimbot;
     bool m_ragebotVisualAimbot;
+    bool m_ragebotVisibleCheck; // only target enemies visible to you (no traces yet)
     bool m_ragebotLegMovement;
     bool m_ragebotMultipoint;
     float m_ragebotMultipointScale;
@@ -160,6 +161,7 @@ public:
     bool  m_triggerbotEnabled;
     float m_triggerbotFov;    // cone in degrees
     int   m_triggerbotDelay;  // ms delay before firing
+    bool  m_triggerbotVisibleCheck; // only fire at visible enemies
 
     // Aimbot
     bool  m_aimbotEnabled;
@@ -167,6 +169,7 @@ public:
     float m_aimbotFov;        // degrees, max activation radius
     float m_aimbotSmooth;     // 1 = instant, higher = slower
     bool  m_aimbotTeamcheck;  // shoot teammates (off = safe)
+    bool  m_aimbotVisibleCheck; // only target visible enemies
 
 private:
     void LoadDefaultConfig();

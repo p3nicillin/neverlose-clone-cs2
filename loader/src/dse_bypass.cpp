@@ -84,7 +84,7 @@ bool DSEBypass::Patch(const std::string& exeDir) {
             std::cerr << "[-] DSEBypass: RTCore64.sys not found at: ";
             std::wcerr << sysPath << L"\n";
             std::cerr << "    Download MSI Afterburner, extract RTCore64.sys, and place it\n"
-                         "    next to neverlose_loader.exe\n";
+                         "    next to horizon_loader.exe\n";
             return false;
         }
     }

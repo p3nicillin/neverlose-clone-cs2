@@ -21,7 +21,7 @@ static void WriteRaw(const char* msg) {
     GetTempPathA(MAX_PATH, tmpPath);
     char logPath[MAX_PATH];
     lstrcpyA(logPath, tmpPath);
-    lstrcatA(logPath, "neverlose.log");
+    lstrcatA(logPath, "horizon.log");
 
     HANDLE h = CreateFileA(logPath, GENERIC_WRITE, FILE_SHARE_READ,
                            NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -42,16 +42,16 @@ void Logger::Init() {
 
     char tmpPath[MAX_PATH];
     GetTempPathA(MAX_PATH, tmpPath);
-    std::string logPath = std::string(tmpPath) + "neverlose.log";
+    std::string logPath = std::string(tmpPath) + "horizon.log";
     g_LogFile.open(logPath, std::ios::out | std::ios::trunc);
 
     WriteRaw("[Logger] Initialized");
-    Log("=== Neverlose.cc started ===");
+    Log("=== Horizon.cc started ===");
 }
 
 void Logger::Shutdown() {
     if (!g_Initialized) return;
-    Log("=== Neverlose.cc stopped ===");
+    Log("=== Horizon.cc stopped ===");
     if (g_LogFile.is_open()) g_LogFile.close();
     g_Initialized = false;
 }

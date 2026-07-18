@@ -1,5 +1,5 @@
 // =================================================================
-// main.cpp - Neverlose loader entry point
+// main.cpp - Horizon loader entry point
 // =================================================================
 
 #define NOMINMAX
@@ -54,7 +54,7 @@ static std::string ResolvePath(const std::string& path) {
 
 static void PrintBanner() {
     std::cout << "========================================\n";
-    std::cout << "  Neverlose.cc VAC Bypass Loader v1.0\n";
+    std::cout << "  Horizon.cc VAC Bypass Loader v1.0\n";
     std::cout << "  (c) 2026 - Educational Use Only\n";
     std::cout << "========================================\n\n";
 }
@@ -67,14 +67,15 @@ int main(int argc, char* argv[]) {
 
     if (!IsRunningAsAdmin()) {
         std::cerr << "[-] This loader requires Administrator privileges.\n";
-        std::cerr << "    Right-click neverlose_loader.exe -> Run as administrator\n";
+        std::cerr << "    Right-click horizon_loader.exe -> Run as administrator\n";
         Pause();
         return 1;
     }
 
     // Parse arguments
-    std::string driverPath = "neverlose.sys";
-    std::string dllPath    = "neverlose_cheat.dll";
+    std::string driverPath = "horizon.sys";
+    std::string dllPath    = "horizon_cheat.dll";
+    bool useKernel = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -82,8 +83,10 @@ int main(int argc, char* argv[]) {
             driverPath = argv[++i];
         } else if ((arg == "-c" || arg == "--cheat") && i + 1 < argc) {
             dllPath = argv[++i];
+        } else if (arg == "-k" || arg == "--kernel") {
+            useKernel = true;
         } else if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: neverlose_loader.exe [-d driver.sys] [-c cheat.dll]\n";
+            std::cout << "Usage: horizon_loader.exe [-d driver.sys] [-c cheat.dll] [-k/--kernel]\n";
             return 0;
         }
     }
@@ -140,15 +143,19 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "[+] Found CS2 (PID: " << pid << ")\n";
 
-    // Inject via kernel driver
-    std::cout << "[*] Injecting via kernel driver...\n";
-    if (!loader.InjectDLL(pid, dllPath)) {
+    // Inject DLL
+    if (useKernel) {
+        std::cout << "[*] Injecting via kernel driver...\n";
+    } else {
+        std::cout << "[*] Injecting via manual map...\n";
+    }
+    if (!loader.InjectDLL(pid, dllPath, useKernel)) {
         std::cerr << "[-] Injection failed\n";
         Pause();
         return 1;
     }
 
-    std::cout << "\n[+] Neverlose.cc injected successfully!\n";
+    std::cout << "\n[+] Horizon.cc injected successfully!\n";
     Pause();
     return 0;
 }

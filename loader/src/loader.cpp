@@ -33,7 +33,7 @@ bool Loader::Initialize() {
 }
 
 bool Loader::LoadDriver(const std::string& driverPath) {
-    std::wstring serviceName = L"NeverloseVACBypass";
+    std::wstring serviceName = L"HorizonVACBypass";
 
     // Resolve to absolute path (SCM requires it)
     wchar_t absPathBuf[MAX_PATH] = {};
@@ -147,8 +147,8 @@ DWORD Loader::FindCS2() {
     return 0;
 }
 
-bool Loader::InjectDLL(DWORD pid, const std::string& dllPath) {
-    return ::InjectDLL(pid, dllPath);
+bool Loader::InjectDLL(DWORD pid, const std::string& dllPath, bool useKernel) {
+    return ::InjectDLL(pid, dllPath, useKernel);
 }
 
 void Loader::Cleanup() {

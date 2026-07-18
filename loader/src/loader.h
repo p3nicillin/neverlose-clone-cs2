@@ -19,7 +19,7 @@ public:
     void TerminateSteam();
     void DisableVACService();
     DWORD FindCS2();
-    bool InjectDLL(DWORD pid, const std::string& dllPath);
+    bool InjectDLL(DWORD pid, const std::string& dllPath, bool useKernel = false);
     void Cleanup();
 
 private:
